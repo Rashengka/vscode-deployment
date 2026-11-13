@@ -18,3 +18,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   permission checks do not apply.
 - Command `Deployment: Open Deployment Config (JSON)`, which creates an empty configuration when
   there is none.
+- OpenSSH client configuration resolver (`Host`, `Include`, identity files, known hosts files;
+  proxies, `Match` and certificates are reported as unsupported) and a `known_hosts` parser
+  with hashed entries, `[host]:port`, wildcards, `@revoked` and SHA256 fingerprints.
