@@ -12,6 +12,8 @@ const VALID_PACKAGE = [
   'extension/dist/',
   'extension/dist/extension.js',
   'extension/dist/ssh2.js',
+  'extension/schemas/',
+  'extension/schemas/config.schema.json',
 ];
 
 describe('checkVsixEntries', () => {
@@ -34,7 +36,8 @@ describe('checkVsixEntries', () => {
     'extension/dist/ssh2.js.map',
     'extension/dist/sshcrypto.node',
     'extension/dist/other.js',
-    'extension/schemas/config.schema.json',
+    'extension/schemas/state.schema.json',
+    'extension/schemas/config.schema.json.bak',
   ])('rejects %s', (entry) => {
     expect(checkVsixEntries([...VALID_PACKAGE, entry]).disallowed).toEqual([entry]);
   });
@@ -43,5 +46,11 @@ describe('checkVsixEntries', () => {
     expect(checkVsixEntries([]).missing).toEqual(REQUIRED_ENTRIES);
     const withoutSsh2 = VALID_PACKAGE.filter((entry) => entry !== 'extension/dist/ssh2.js');
     expect(checkVsixEntries(withoutSsh2).missing).toEqual(['extension/dist/ssh2.js']);
+    const withoutSchema = VALID_PACKAGE.filter(
+      (entry) => entry !== 'extension/schemas/config.schema.json',
+    );
+    expect(checkVsixEntries(withoutSchema).missing).toEqual([
+      'extension/schemas/config.schema.json',
+    ]);
   });
 });
