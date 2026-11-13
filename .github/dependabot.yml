@@ -9,6 +9,21 @@ updates:
       dev-dependencies:
         dependency-type: development
         update-types: [minor, patch]
+    ignore:
+      # Must match the minimum version in `engines.vscode`; vsce rejects newer typings.
+      # Raise both together by hand.
+      - dependency-name: '@types/vscode'
+        update-types:
+          - 'version-update:semver-minor'
+          - 'version-update:semver-major'
+      # Matches the Node.js major bundled with the minimum supported VS Code.
+      - dependency-name: '@types/node'
+        update-types:
+          - 'version-update:semver-major'
+      # A new TypeScript major waits until typescript-eslint supports it.
+      - dependency-name: typescript
+        update-types:
+          - 'version-update:semver-major'
 
   - package-ecosystem: github-actions
     directory: /
