@@ -76,7 +76,7 @@
     "@types/mocha": "10.0.10",
     "@types/node": "24.19.2",
     "@types/ssh2": "1.15.6",
-    "@types/vscode": "1.144.0",
+    "@types/vscode": "1.145.0",
     "@vscode/test-cli": "0.0.15",
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "4.1.1",
