@@ -1,0 +1,185 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# No permissions by default; every job asks only for what it needs.
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  check:
+    name: Check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # `--omit=optional` is not used: esbuild and Vitest ship their platform binaries as
+      # optional dependencies. Native addons of ssh2 are kept out by `--ignore-scripts` (checked
+      # below) and by the bundle, which the packaging tests verify.
+      - run: npm ci --ignore-scripts
+      - name: Verify registry signatures and provenance
+        run: npm audit signatures
+      - name: Audit for known vulnerabilities
+        run: npm audit --audit-level=high
+      # Canary: with --ignore-scripts no native addon may exist. Fails loudly if a directory
+      # cannot be searched instead of treating that as "nothing found".
+      - name: Canary - no native addon of ssh2 was built
+        run: |
+          set -euo pipefail
+          test -d node_modules/ssh2
+          for dir in node_modules/ssh2 node_modules/cpu-features; do
+            if [ ! -d "$dir" ]; then
+              echo "$dir is not installed"
+              continue
+            fi
+            found="$(find "$dir" -name '*.node')"
+            if [ -n "$found" ]; then
+              echo "::error::Native addon found in $dir:"
+              echo "$found"
+              exit 1
+            fi
+            echo "$dir: no native addon"
+          done
+
+  leaks:
+    name: Leak patterns
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history: commit messages and file names of the pushed range are scanned too.
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      # Needs no dependencies; the patterns live in scripts/lib/leakPatterns.mts. The refs are
+      # passed through the environment, never interpolated into the script. An all-zero or
+      # missing base (new branch, manual run) makes the script scan the whole history.
+      - name: Scan files, commit messages and file names
+        env:
+          LEAK_SCAN_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          LEAK_SCAN_HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: npm run check:leaks
+
+  integration:
+    name: Integration tests (Docker OpenSSH)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci --ignore-scripts
+      - run: npm run test:integration
+
+  extension:
+    name: Extension tests (VS Code)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci --ignore-scripts
+      - run: xvfb-run -a npm run test:extension
+
+  package:
+    name: Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci --ignore-scripts
+      - name: Build and package
+        run: npm run package
+      # `npm run package` already compared the contents with the allowlist; list them for the log.
+      - name: List the package contents
+        run: unzip -l vscode-deployment.vsix
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vscode-deployment-vsix
+          path: vscode-deployment.vsix
+          if-no-files-found: error
+          retention-days: 14
+
+  # The single status check required by the branch ruleset.
+  ci-ok:
+    name: CI OK
+    if: always()
+    needs: [check, dependencies, leaks, integration, extension, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require every job to succeed
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "Job results: $RESULTS"
+          if [ "$(echo "$RESULTS" | jq -r 'map(select(. != "success")) | length')" != "0" ]; then
+            echo "::error::Not all CI jobs succeeded."
+            exit 1
+          fi
+          if [ "$(echo "$RESULTS" | jq -r 'length')" != "6" ]; then
+            echo "::error::Unexpected number of job results."
+            exit 1
+          fi

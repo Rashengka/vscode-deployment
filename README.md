@@ -14,7 +14,7 @@ workflow of JetBrains IDEs.
   that is only ever kept in memory) and in-place servers (a local folder with a web URL).
 - Path mappings and excluded paths.
 - Upload the current file, all open files, or files selected in the Explorer, always after an
-  explicit confirmation with *Cancel* preselected.
+  explicit confirmation with _Cancel_ preselected.
 - Compare a local file with its deployed version.
 - Download a file from the server, with a confirmation before a local file is overwritten.
 

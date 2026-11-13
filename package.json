@@ -1,0 +1,95 @@
+{
+  "name": "vscode-deployment",
+  "displayName": "Deployment",
+  "description": "Upload, download and compare project files with SFTP and in-place deployment servers.",
+  "version": "0.0.1",
+  "publisher": "rashengka",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Rashengka/vscode-deployment.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Rashengka/vscode-deployment/issues"
+  },
+  "engines": {
+    "vscode": "^1.144.0",
+    "node": ">=24"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "deployment",
+    "sftp",
+    "ssh",
+    "upload"
+  ],
+  "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Deployment reads project files and connects to servers, so it requires a trusted workspace."
+    },
+    "virtualWorkspaces": false
+  },
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "vscodeDeployment.helloWorld",
+        "title": "Hello World",
+        "category": "Deployment"
+      }
+    ]
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mts",
+    "build:prod": "node scripts/build.mts --production",
+    "vscode:prepublish": "npm run build:prod",
+    "check": "npm run lint && npm run typecheck && npm test",
+    "lint": "eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "typecheck": "tsc -p tsconfig.json && tsc -p test/extension/tsconfig.json --noEmit",
+    "test": "vitest run --config vitest.config.mts",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:extension": "node scripts/prepare-extension-test.mts && tsc -p test/extension/tsconfig.json && vscode-test",
+    "package": "node scripts/package.mts",
+    "check:vsix": "node scripts/check-vsix.mts",
+    "check:leaks": "node scripts/check-leaks.mts"
+  },
+  "dependencies": {
+    "ssh2": "1.17.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/mocha": "10.0.10",
+    "@types/node": "24.19.2",
+    "@types/ssh2": "1.15.6",
+    "@types/vscode": "1.144.0",
+    "@vscode/test-cli": "0.0.15",
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "4.1.1",
+    "esbuild": "0.28.2",
+    "eslint": "10.14.0",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "17.14.0",
+    "prettier": "3.10.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2",
+    "vitest": "5.1.0"
+  },
+  "overrides": {
+    "serialize-javascript": "7.1.4"
+  }
+}

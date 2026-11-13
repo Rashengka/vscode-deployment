@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "node20",
+    "moduleResolution": "node16",
+    "rootDir": "../..",
+    "outDir": "../../out",
+    "types": ["node", "mocha"],
+    "sourceMap": true
+  },
+  "include": [".", "../support", "../../src/types"]
+}
