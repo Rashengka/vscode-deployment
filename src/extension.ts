@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as vscode from 'vscode';
+import { createConnectionManager } from './adapters/connection';
 import { OPEN_CONFIG_COMMAND, openConfig } from './commands/openConfig';
 import { CONTEXT_HAS_CONFIG, CONTEXT_HAS_UPLOAD_TARGET } from './config/contextKeys';
 import {
@@ -147,8 +148,15 @@ class ConfigTracker implements vscode.Disposable {
 
 export function activate(context: vscode.ExtensionContext): void {
   const tracker = new ConfigTracker();
+  // Closes every connection when the extension is deactivated.
+  const connections = createConnectionManager(context.extensionPath);
   context.subscriptions.push(
     tracker,
+    {
+      dispose: () => {
+        connections.dispose();
+      },
+    },
     vscode.commands.registerCommand(HELLO_WORLD_COMMAND, () => {
       void vscode.window.showInformationMessage(HELLO_WORLD_MESSAGE);
       return HELLO_WORLD_MESSAGE;

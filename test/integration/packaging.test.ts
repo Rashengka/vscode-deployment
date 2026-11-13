@@ -35,7 +35,7 @@ describe('packaged extension (.vsix)', () => {
 
   it('has no require() of *.node or cpu-features in any bundled file', () => {
     const bundles = readdirSync(distDir).filter((file) => file.endsWith('.js'));
-    expect(bundles.sort()).toEqual(['extension.js', 'ssh2.js']);
+    expect(bundles.sort()).toEqual(['extension.js', 'kdfWorker.js', 'ssh2.js']);
     let scannedBytes = 0;
     for (const bundle of bundles) {
       const content = readFileSync(join(distDir, bundle), 'utf8');
@@ -47,7 +47,7 @@ describe('packaged extension (.vsix)', () => {
 
   it('requires nothing but Node.js built-ins (and vscode) at runtime', () => {
     const required = new Set<string>();
-    for (const bundle of ['extension.js', 'ssh2.js']) {
+    for (const bundle of ['extension.js', 'kdfWorker.js', 'ssh2.js']) {
       const content = readFileSync(join(distDir, bundle), 'utf8');
       for (const match of content.matchAll(/require\(\s*["'`]([^"'`]+)["'`]\s*\)/g)) {
         required.add(match[1] ?? '');

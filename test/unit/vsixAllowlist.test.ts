@@ -12,6 +12,7 @@ const VALID_PACKAGE = [
   'extension/dist/',
   'extension/dist/extension.js',
   'extension/dist/ssh2.js',
+  'extension/dist/kdfWorker.js',
   'extension/schemas/',
   'extension/schemas/config.schema.json',
 ];

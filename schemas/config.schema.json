@@ -83,7 +83,7 @@
           "description": "Either sshConfigHost or host, never both.",
           "type": "object",
           "additionalProperties": false,
-          "required": ["sshConfigHost", "host", "port", "user", "identityFile"],
+          "required": ["sshConfigHost", "host", "port", "user", "identityFile", "useSshAgent"],
           "properties": {
             "sshConfigHost": {
               "description": "A Host alias from your SSH config, or null for a manual connection.",
@@ -105,6 +105,10 @@
             "identityFile": {
               "description": "Path to a private key file (never the key itself).",
               "type": ["string", "null"]
+            },
+            "useSshAgent": {
+              "description": "Required. Also authenticate through the running SSH agent. Use false unless you need the agent: with true, any process that can use the agent could open the same connection.",
+              "type": "boolean"
             }
           },
           "oneOf": [

@@ -27,6 +27,25 @@ export interface TestClientConfig {
   readonly privateKey: string;
 }
 
+export type HostKeyType = 'ssh-ed25519' | 'ecdsa-sha2-nistp256' | 'ssh-rsa';
+
+export interface GeneratedKey {
+  /** The private key file content, as written by ssh-keygen. */
+  readonly content: Buffer;
+  /** The `.pub` line. */
+  readonly publicKey: string;
+}
+
+export interface GenerateKeyOptions {
+  readonly type: 'ed25519' | 'ecdsa' | 'rsa';
+  /** Empty for an unencrypted key. Passed to ssh-keygen through the environment only. */
+  readonly passphrase: string;
+  /** `PEM` for the old PEM format; default is the OpenSSH format. */
+  readonly format?: 'PEM';
+  /** Add the public key to the test user's authorized_keys. */
+  readonly authorize: boolean;
+}
+
 export interface SshdContainer {
   readonly name: string;
   /**
@@ -36,6 +55,12 @@ export interface SshdContainer {
   readonly clientConfig: TestClientConfig;
   /** Raw public host key blob, as passed to ssh2's `hostVerifier`. */
   readonly hostKey: Buffer;
+  /** Every host key of the server (ed25519, ECDSA, RSA) as `<type> <base64>` lines. */
+  readonly hostKeyLines: Readonly<Record<HostKeyType, string>>;
+  /** Generates a client key with ssh-keygen inside the container. */
+  generateKey(options: GenerateKeyOptions): Promise<GeneratedKey>;
+  /** Hashes a known_hosts text with `ssh-keygen -H` inside the container. */
+  hashKnownHosts(text: string): Promise<string>;
   stop(): Promise<void>;
 }
 
@@ -55,8 +80,22 @@ function findSshdContext(): string {
   }
 }
 
-async function docker(args: readonly string[]): Promise<string> {
-  const { stdout } = await execFileAsync('docker', [...args], { maxBuffer: 16 * 1024 * 1024 });
+async function docker(
+  args: readonly string[],
+  env: Readonly<Record<string, string>> = {},
+): Promise<string> {
+  const { stdout } = await execFileAsync('docker', [...args], {
+    maxBuffer: 16 * 1024 * 1024,
+    env: { ...process.env, ...env },
+  });
+  return stdout;
+}
+
+async function dockerBuffer(args: readonly string[]): Promise<Buffer> {
+  const { stdout } = await execFileAsync('docker', [...args], {
+    maxBuffer: 16 * 1024 * 1024,
+    encoding: 'buffer',
+  });
   return stdout;
 }
 
@@ -145,16 +184,71 @@ export async function startSshd(): Promise<SshdContainer> {
     await waitFor('SSH banner', () => readBanner(host, port));
 
     const privateKey = await docker(['exec', name, 'cat', '/run/test-client/id_ed25519']);
-    const hostPublicKey = await docker(['exec', name, 'cat', '/etc/ssh/ssh_host_ed25519_key.pub']);
-    const [keyType, keyData] = hostPublicKey.trim().split(/\s+/);
-    if (keyType !== 'ssh-ed25519' || keyData === undefined) {
-      throw new Error(`Unexpected host key format in ${name}.`);
-    }
+    const hostKeyLine = async (type: HostKeyType, file: string): Promise<string> => {
+      const line = await docker(['exec', name, 'cat', `/etc/ssh/${file}.pub`]);
+      const [keyType, keyData] = line.trim().split(/\s+/);
+      if (keyType !== type || keyData === undefined) {
+        throw new Error(`Unexpected host key format in ${name}.`);
+      }
+      return `${keyType} ${keyData}`;
+    };
+    const hostKeyLines: Record<HostKeyType, string> = {
+      'ssh-ed25519': await hostKeyLine('ssh-ed25519', 'ssh_host_ed25519_key'),
+      'ecdsa-sha2-nistp256': await hostKeyLine('ecdsa-sha2-nistp256', 'ssh_host_ecdsa_key'),
+      'ssh-rsa': await hostKeyLine('ssh-rsa', 'ssh_host_rsa_key'),
+    };
+    let generated = 0;
 
     return {
       name,
       clientConfig: { host, port, username: 'deploy', privateKey },
-      hostKey: Buffer.from(keyData, 'base64'),
+      hostKey: Buffer.from(hostKeyLines['ssh-ed25519'].split(' ')[1] ?? '', 'base64'),
+      hostKeyLines,
+      async generateKey(options) {
+        generated += 1;
+        const file = `/run/test-generated/key${generated}`;
+        const format = options.format === undefined ? '' : `-m ${options.format}`;
+        const bits = options.type === 'rsa' ? '-b 3072' : options.type === 'ecdsa' ? '-b 256' : '';
+        // The passphrase comes from the environment (`-e PASSPHRASE`), never from the command
+        // line, so that it cannot appear in an error message that quotes the command.
+        await docker(
+          [
+            'exec',
+            '-e',
+            'PASSPHRASE',
+            name,
+            'sh',
+            '-c',
+            `install -d -m 0700 /run/test-generated && ssh-keygen -q -t ${options.type} ${bits} ${format} -a 16 -C test-client -N "$PASSPHRASE" -f ${file}`,
+          ],
+          { PASSPHRASE: options.passphrase },
+        );
+        const publicKey = (await docker(['exec', name, 'cat', `${file}.pub`])).trim();
+        if (options.authorize) {
+          await docker([
+            'exec',
+            name,
+            'sh',
+            '-c',
+            'printf "%s\\n" "$1" >> /home/deploy/.ssh/authorized_keys',
+            'sh',
+            publicKey,
+          ]);
+        }
+        return { content: await dockerBuffer(['exec', name, 'cat', file]), publicKey };
+      },
+      async hashKnownHosts(text) {
+        const file = '/run/test-generated/known_hosts';
+        return docker([
+          'exec',
+          name,
+          'sh',
+          '-c',
+          `install -d -m 0700 /run/test-generated && printf "%s" "$1" > ${file} && ssh-keygen -q -H -f ${file} >/dev/null && rm -f ${file}.old && cat ${file}`,
+          'sh',
+          text,
+        ]);
+      },
       stop,
     };
   } catch (error) {

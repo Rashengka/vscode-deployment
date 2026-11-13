@@ -1,5 +1,7 @@
 Port 2222
 HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+HostKey /etc/ssh/ssh_host_rsa_key
 PidFile /run/sshd.pid
 
 AllowUsers deploy
@@ -17,3 +19,7 @@ PermitTunnel no
 
 Subsystem sftp internal-sftp
 LogLevel VERBOSE
+
+# The tests fail authentication and abort connections on purpose, many times in a row; without
+# this, sshd would start refusing the test client (source address penalties).
+PerSourcePenalties no

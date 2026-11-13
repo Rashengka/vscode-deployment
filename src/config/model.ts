@@ -21,6 +21,12 @@ export interface SshConnection {
   readonly user: string | null;
   /** Path to a private key file. Never the key itself. */
   readonly identityFile: string | null;
+  /**
+   * Also authenticate through the running SSH agent. Required, so that a configuration never
+   * uses the agent without saying so; `false` is the recommended value: with `true`, any process
+   * that can reach the agent could open the same connection.
+   */
+  readonly useSshAgent: boolean;
 }
 
 export interface Mapping {

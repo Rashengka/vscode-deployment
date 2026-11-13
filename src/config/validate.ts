@@ -31,7 +31,14 @@ export const SFTP_SERVER_KEYS = [
   'excludedRemotePaths',
 ] as const;
 export const INPLACE_SERVER_KEYS = ['id', 'name', 'default', 'type', 'folder', 'webUrl'] as const;
-export const CONNECTION_KEYS = ['sshConfigHost', 'host', 'port', 'user', 'identityFile'] as const;
+export const CONNECTION_KEYS = [
+  'sshConfigHost',
+  'host',
+  'port',
+  'user',
+  'identityFile',
+  'useSshAgent',
+] as const;
 export const MAPPING_KEYS = ['localPath', 'deploymentPath'] as const;
 
 const MAX_KEEPALIVE_SECONDS = 86_400;
@@ -238,6 +245,7 @@ function validateConnection(c: Collector, where: string, value: unknown): SshCon
   const user = c.nullableString(`${where}.user`, raw['user']);
   const identityFile = c.nullableString(`${where}.identityFile`, raw['identityFile']);
   const port = raw['port'] === null ? null : c.integer(`${where}.port`, raw['port'], 1, 65_535);
+  const useSshAgent = c.boolean(`${where}.useSshAgent`, raw['useSshAgent']);
   if (identityFile !== undefined) {
     noKeyMaterial(c, `${where}.identityFile`, identityFile);
   }
@@ -253,11 +261,12 @@ function validateConnection(c: Collector, where: string, value: unknown): SshCon
     host === undefined ||
     user === undefined ||
     identityFile === undefined ||
-    port === undefined
+    port === undefined ||
+    useSshAgent === undefined
   ) {
     return null;
   }
-  return { sshConfigHost, host, port, user, identityFile };
+  return { sshConfigHost, host, port, user, identityFile, useSshAgent };
 }
 
 function validateMapping(c: Collector, where: string, value: unknown): Mapping | null {
