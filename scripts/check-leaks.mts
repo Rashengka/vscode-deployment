@@ -12,7 +12,10 @@
  * they are listed and counted, not scanned. Exit codes: 1 = findings, 2 = nothing was scanned or
  * invalid input.
  *
- * Usage: [LEAK_SCAN_BASE=<sha>] [LEAK_SCAN_HEAD=<sha>] node scripts/check-leaks.mts
+ * `LEAK_SCAN_REPO` points the scan at another repository (used by the tests); it defaults to
+ * this repository.
+ *
+ * Usage: [LEAK_SCAN_REPO=<dir>] [LEAK_SCAN_BASE=<sha>] [LEAK_SCAN_HEAD=<sha>] node scripts/check-leaks.mts
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
@@ -22,10 +25,11 @@ import { REPO_ROOT } from './lib/vsix.mts';
 
 const SHA = /^[0-9a-f]{40}$/;
 const ZERO_SHA = /^0{40}$/;
+const SCAN_ROOT = process.env['LEAK_SCAN_REPO'] || REPO_ROOT;
 
 function git(args: readonly string[]): string {
   return execFileSync('git', [...args], {
-    cwd: REPO_ROOT,
+    cwd: SCAN_ROOT,
     encoding: 'utf8',
     maxBuffer: 256 * 1024 * 1024,
   });
@@ -40,7 +44,7 @@ const problems: string[] = [];
 // 1. Working tree.
 const files = nulSeparated(
   git(['ls-files', '-z', '--cached', '--others', '--exclude-standard']),
-).filter((file) => existsSync(join(REPO_ROOT, file)));
+).filter((file) => existsSync(join(SCAN_ROOT, file)));
 
 let scannedFiles = 0;
 let scannedBytes = 0;
@@ -49,7 +53,7 @@ for (const [index, file] of files.entries()) {
   for (const patternId of matchLeakPatterns(file)) {
     problems.push(`file name #${index + 1} of git ls-files: matches leak pattern "${patternId}"`);
   }
-  const content = readFileSync(join(REPO_ROOT, file));
+  const content = readFileSync(join(SCAN_ROOT, file));
   if (content.includes(0)) {
     binaryFiles.push(file);
     continue;
@@ -83,7 +87,7 @@ if (head !== '') {
   const baseKnown =
     base !== '' &&
     !ZERO_SHA.test(base) &&
-    spawnSync('git', ['cat-file', '-e', `${base}^{commit}`], { cwd: REPO_ROOT }).status === 0;
+    spawnSync('git', ['cat-file', '-e', `${base}^{commit}`], { cwd: SCAN_ROOT }).status === 0;
   const range = baseKnown ? [`${base}..${head}`] : [head];
   console.log(
     baseKnown
