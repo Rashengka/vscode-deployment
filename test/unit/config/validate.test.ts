@@ -56,6 +56,7 @@ describe('validateConfig', () => {
         port: 2222,
         user: 'deploy',
         identityFile: '~/.ssh/id_ed25519',
+        useSshAgent: true,
       },
     });
     const value = config([json(manual)], { projectPath: 'C:\\www\\app' });
@@ -108,6 +109,18 @@ describe('validateConfig', () => {
         'config.extra: unknown property',
         'servers[0].mappings[0].extra: unknown property',
         'servers[1].mappings: unknown property',
+      ]);
+    });
+
+    it('requires useSshAgent to be true or false', () => {
+      const missing = Object.fromEntries(
+        Object.entries(connectionWith({})).filter(([key]) => key !== 'useSshAgent'),
+      );
+      expect(errorsOf(withServer({ connection: missing }))).toEqual([
+        'servers[0].connection.useSshAgent: must be true or false',
+      ]);
+      expect(errorsOf(withServer({ connection: connectionWith({ useSshAgent: 'yes' }) }))).toEqual([
+        'servers[0].connection.useSshAgent: must be true or false',
       ]);
     });
 

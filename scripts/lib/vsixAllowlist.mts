@@ -16,7 +16,11 @@ const METADATA_FILES: readonly string[] = [
 ];
 
 /** The bundle entry points produced by `scripts/build.mts`. */
-const BUNDLE_FILES: readonly string[] = ['extension/dist/extension.js', 'extension/dist/ssh2.js'];
+const BUNDLE_FILES: readonly string[] = [
+  'extension/dist/extension.js',
+  'extension/dist/ssh2.js',
+  'extension/dist/kdfWorker.js',
+];
 
 /** JSON schema of `config.json`, referenced by `contributes.jsonValidation`. */
 const SCHEMA_FILES: readonly string[] = ['extension/schemas/config.schema.json'];

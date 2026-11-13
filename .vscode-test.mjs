@@ -1,39 +1,29 @@
 // Extension tests run inside VS Code against the unpacked .vsix prepared by
-// scripts/prepare-extension-test.mts (see `npm run test:extension`).
+// scripts/prepare-extension-test.mts (see `npm run test:extension`). The paths come from the
+// same module the preparation script uses; they are specific to this checkout.
 import { defineConfig } from '@vscode/test-cli';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-// Keep in sync with scripts/lib/extensionTestPaths.mts.
-const extensionUnderTest = join(
-  tmpdir(),
-  'vscode-deployment-extension-test',
-  'unpacked',
-  'extension',
-);
-
-// Keep in sync with EXTENSION_TEST_USER_DATA in scripts/lib/extensionTestPaths.mts.
-const userDataDir = join(tmpdir(), 'vscode-deployment-ud');
-
-// Keep in sync with EXTENSION_TEST_WORKSPACE and EXTENSION_TEST_CONFIG.
-const workspaceFolder = join(tmpdir(), 'vscode-deployment-ws');
-const configDir = join(tmpdir(), 'vscode-deployment-cfg', 'vscode-deployment');
+import {
+  EXTENSION_TEST_CONFIG,
+  EXTENSION_TEST_EXTENSION,
+  EXTENSION_TEST_USER_DATA,
+  EXTENSION_TEST_WORKSPACE,
+} from './scripts/lib/extensionTestPaths.mts';
 
 export default defineConfig({
   files: 'out/test/extension/**/*.test.js',
   // The minimum version from package.json `engines.vscode`.
   version: '1.144.0',
-  extensionDevelopmentPath: extensionUnderTest,
-  workspaceFolder,
+  extensionDevelopmentPath: EXTENSION_TEST_EXTENSION,
+  workspaceFolder: EXTENSION_TEST_WORKSPACE,
   // The extension does not run in untrusted workspaces; the test folder is created by the run.
   launchArgs: [
     '--disable-extensions',
     '--disable-workspace-trust',
-    `--user-data-dir=${userDataDir}`,
+    `--user-data-dir=${EXTENSION_TEST_USER_DATA}`,
   ],
   env: {
-    VSCODE_DEPLOYMENT_EXTENSION_UNDER_TEST: extensionUnderTest,
-    VSCODE_DEPLOYMENT_CONFIG_DIR: configDir,
+    VSCODE_DEPLOYMENT_EXTENSION_UNDER_TEST: EXTENSION_TEST_EXTENSION,
+    VSCODE_DEPLOYMENT_CONFIG_DIR: EXTENSION_TEST_CONFIG,
   },
   mocha: {
     ui: 'bdd',

@@ -5,6 +5,7 @@
  * - `dist/ssh2.js`: ssh2 and its pure JavaScript dependencies. The native crypto addon
  *   (`*.node`) and `cpu-features` are replaced with modules that throw when required, so the
  *   bundle never tries to load native code and behaves the same on every platform.
+ * - `dist/kdfWorker.js`: the worker thread that derives keys of encrypted OpenSSH keys.
  *
  * Usage: node scripts/build.mts [--production]
  */
@@ -39,6 +40,7 @@ await esbuild.build({
   entryPoints: {
     extension: 'src/extension.ts',
     ssh2: 'src/ssh/ssh2Bundle.ts',
+    kdfWorker: 'src/ssh/kdfWorker.ts',
   },
   outdir: 'dist',
   bundle: true,
