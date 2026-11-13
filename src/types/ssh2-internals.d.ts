@@ -2,3 +2,7 @@
 declare module 'ssh2/lib/protocol/crypto.js' {
   export const bindingAvailable: boolean;
 }
+
+declare module 'ssh2/lib/protocol/constants.js' {
+  export const SUPPORTED_SERVER_HOST_KEY: readonly string[];
+}
