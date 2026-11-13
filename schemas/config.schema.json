@@ -1,0 +1,217 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Rashengka/vscode-deployment/schemas/config.schema.json",
+  "title": "Deployment configuration",
+  "description": "Deployment servers of one project folder. Never put a password, passphrase or key into this file; there is no field for them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "projectPath", "servers"],
+  "properties": {
+    "version": {
+      "description": "Format version of this file.",
+      "const": 1
+    },
+    "projectPath": {
+      "description": "Absolute path of the project folder this file belongs to. Checked when the file is loaded.",
+      "type": "string",
+      "minLength": 1
+    },
+    "servers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type"],
+        "properties": {
+          "type": {
+            "enum": ["sftp", "inplace"]
+          }
+        },
+        "oneOf": [
+          {
+            "$ref": "#/definitions/sftpServer"
+          },
+          {
+            "$ref": "#/definitions/inplaceServer"
+          }
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "name": {
+      "description": "Display name, unique within the project (case is ignored).",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+    },
+    "relativePath": {
+      "description": "Relative path with forward slashes; \".\" is the base folder. \"..\" is not allowed.",
+      "type": "string",
+      "pattern": "^(?![A-Za-z]:|/)(?!(?:.*/)?\\.\\.(?:/|$))[^\\\\\\u0000-\\u001f\\u007f-\\u009f]*$"
+    },
+    "sftpServer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "default",
+        "type",
+        "connection",
+        "rootPath",
+        "keepAliveSeconds",
+        "idleDisconnectMinutes",
+        "mappings",
+        "excludedLocalPaths",
+        "excludedRemotePaths"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "name": {
+          "$ref": "#/definitions/name"
+        },
+        "default": {
+          "description": "At most one server may be the default.",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "sftp"
+        },
+        "connection": {
+          "description": "Either sshConfigHost or host, never both.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sshConfigHost", "host", "port", "user", "identityFile"],
+          "properties": {
+            "sshConfigHost": {
+              "description": "A Host alias from your SSH config, or null for a manual connection.",
+              "type": ["string", "null"]
+            },
+            "host": {
+              "type": ["string", "null"]
+            },
+            "port": {
+              "type": ["integer", "null"],
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "user": {
+              "description": "User name only; \":\" is not allowed (never put a password here).",
+              "type": ["string", "null"],
+              "pattern": "^[^:\\u0000-\\u001f\\u007f-\\u009f]*$"
+            },
+            "identityFile": {
+              "description": "Path to a private key file (never the key itself).",
+              "type": ["string", "null"]
+            }
+          },
+          "oneOf": [
+            {
+              "properties": {
+                "sshConfigHost": {
+                  "type": "string"
+                },
+                "host": {
+                  "type": "null"
+                }
+              }
+            },
+            {
+              "properties": {
+                "sshConfigHost": {
+                  "type": "null"
+                },
+                "host": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        },
+        "rootPath": {
+          "description": "Absolute path on the server, such as /home/deploy or /var/www/app.",
+          "type": "string",
+          "pattern": "^/(?!(?:.*/)?\\.\\.(?:/|$))[^\\\\\\u0000-\\u001f\\u007f-\\u009f]*$"
+        },
+        "keepAliveSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "idleDisconnectMinutes": {
+          "description": "0 keeps the connection until the window closes.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10080
+        },
+        "mappings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["localPath", "deploymentPath"],
+            "properties": {
+              "localPath": {
+                "description": "Relative to the project folder.",
+                "$ref": "#/definitions/relativePath"
+              },
+              "deploymentPath": {
+                "description": "Relative to rootPath.",
+                "$ref": "#/definitions/relativePath"
+              }
+            }
+          }
+        },
+        "excludedLocalPaths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/relativePath"
+          }
+        },
+        "excludedRemotePaths": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/relativePath"
+          }
+        }
+      }
+    },
+    "inplaceServer": {
+      "description": "A server that runs directly from the project folder; nothing is copied to it.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "default", "type", "folder", "webUrl"],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/id"
+        },
+        "name": {
+          "$ref": "#/definitions/name"
+        },
+        "default": {
+          "type": "boolean"
+        },
+        "type": {
+          "const": "inplace"
+        },
+        "folder": {
+          "description": "Absolute path of the folder the server runs from.",
+          "type": "string",
+          "minLength": 1
+        },
+        "webUrl": {
+          "description": "Where the site is served (http or https), or null.",
+          "type": ["string", "null"],
+          "pattern": "^https?://"
+        }
+      }
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f]*$"
+    }
+  }
+}

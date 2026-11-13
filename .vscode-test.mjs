@@ -15,14 +15,25 @@ const extensionUnderTest = join(
 // Keep in sync with EXTENSION_TEST_USER_DATA in scripts/lib/extensionTestPaths.mts.
 const userDataDir = join(tmpdir(), 'vscode-deployment-ud');
 
+// Keep in sync with EXTENSION_TEST_WORKSPACE and EXTENSION_TEST_CONFIG.
+const workspaceFolder = join(tmpdir(), 'vscode-deployment-ws');
+const configDir = join(tmpdir(), 'vscode-deployment-cfg', 'vscode-deployment');
+
 export default defineConfig({
   files: 'out/test/extension/**/*.test.js',
   // The minimum version from package.json `engines.vscode`.
   version: '1.144.0',
   extensionDevelopmentPath: extensionUnderTest,
-  launchArgs: ['--disable-extensions', `--user-data-dir=${userDataDir}`],
+  workspaceFolder,
+  // The extension does not run in untrusted workspaces; the test folder is created by the run.
+  launchArgs: [
+    '--disable-extensions',
+    '--disable-workspace-trust',
+    `--user-data-dir=${userDataDir}`,
+  ],
   env: {
     VSCODE_DEPLOYMENT_EXTENSION_UNDER_TEST: extensionUnderTest,
+    VSCODE_DEPLOYMENT_CONFIG_DIR: configDir,
   },
   mocha: {
     ui: 'bdd',

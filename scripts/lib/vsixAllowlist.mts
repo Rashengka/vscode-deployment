@@ -18,10 +18,21 @@ const METADATA_FILES: readonly string[] = [
 /** The bundle entry points produced by `scripts/build.mts`. */
 const BUNDLE_FILES: readonly string[] = ['extension/dist/extension.js', 'extension/dist/ssh2.js'];
 
-const ALLOWED_FILES: ReadonlySet<string> = new Set([...METADATA_FILES, ...BUNDLE_FILES]);
+/** JSON schema of `config.json`, referenced by `contributes.jsonValidation`. */
+const SCHEMA_FILES: readonly string[] = ['extension/schemas/config.schema.json'];
+
+const ALLOWED_FILES: ReadonlySet<string> = new Set([
+  ...METADATA_FILES,
+  ...BUNDLE_FILES,
+  ...SCHEMA_FILES,
+]);
 
 /** Entries that must be present, so that an empty or truncated listing is never accepted. */
-export const REQUIRED_ENTRIES: readonly string[] = ['extension/package.json', ...BUNDLE_FILES];
+export const REQUIRED_ENTRIES: readonly string[] = [
+  'extension/package.json',
+  ...BUNDLE_FILES,
+  ...SCHEMA_FILES,
+];
 
 export interface VsixContentReport {
   readonly disallowed: readonly string[];

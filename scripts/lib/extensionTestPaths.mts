@@ -16,3 +16,12 @@ export const EXTENSION_TEST_EXTENSION = join(EXTENSION_TEST_UNPACKED, 'extension
  * socket paths are limited to about 100 characters.
  */
 export const EXTENSION_TEST_USER_DATA = join(tmpdir(), 'vscode-deployment-ud');
+
+/** Workspace folder opened by the test instance. */
+export const EXTENSION_TEST_WORKSPACE = join(tmpdir(), 'vscode-deployment-ws');
+
+/**
+ * Configuration root of the test instance (passed as VSCODE_DEPLOYMENT_CONFIG_DIR), so that the
+ * tests never read or write the configuration of the user running them.
+ */
+export const EXTENSION_TEST_CONFIG = join(tmpdir(), 'vscode-deployment-cfg', 'vscode-deployment');

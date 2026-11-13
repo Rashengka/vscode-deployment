@@ -37,18 +37,34 @@
     },
     "virtualWorkspaces": false
   },
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "commands": [
       {
         "command": "vscodeDeployment.helloWorld",
         "title": "Hello World",
         "category": "Deployment"
+      },
+      {
+        "command": "vscodeDeployment.openConfig",
+        "title": "Open Deployment Config (JSON)",
+        "category": "Deployment"
+      }
+    ],
+    "jsonValidation": [
+      {
+        "fileMatch": [
+          "**/vscode-deployment/projects/*/config.json"
+        ],
+        "url": "./schemas/config.schema.json"
       }
     ]
   },
   "files": [
     "dist/",
+    "schemas/config.schema.json",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
