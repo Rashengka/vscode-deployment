@@ -74,7 +74,7 @@
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/mocha": "10.0.10",
-    "@types/node": "24.19.2",
+    "@types/node": "26.6.6",
     "@types/ssh2": "1.15.6",
     "@types/vscode": "1.144.0",
     "@vscode/test-cli": "0.0.15",
