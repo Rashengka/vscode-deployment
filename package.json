@@ -82,7 +82,8 @@
     "test:extension": "node scripts/prepare-extension-test.mts && tsc -p test/extension/tsconfig.json && vscode-test",
     "package": "node scripts/package.mts",
     "check:vsix": "node scripts/check-vsix.mts",
-    "check:leaks": "node scripts/check-leaks.mts"
+    "check:leaks": "node scripts/check-leaks.mts",
+    "check:audit": "node scripts/check-audit.mts"
   },
   "dependencies": {
     "ssh2": "1.17.0"
