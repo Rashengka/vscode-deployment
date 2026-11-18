@@ -1,0 +1,74 @@
+/**
+ * Whether each VS Code instance of `npm run test:extension` really ran its tests.
+ *
+ * `vscode-test` reports success when VS Code exits with code 0, also when VS Code ended before
+ * mocha ran a single test (`failZero` cannot help then: mocha never started). So every instance
+ * writes two files into its test folder (`test/extension/support/results.ts`): one when the
+ * test files are loaded and one with the counts when mocha has finished. A run is accepted only
+ * when both exist for every instance and at least one test passed and none failed, was skipped
+ * or did not run.
+ */
+
+/** Written when mocha loads the test files. */
+export const STARTED_FILE = 'mocha-started.json';
+/** Written when mocha has run every test. */
+export const RESULTS_FILE = 'mocha-results.json';
+
+export interface MochaCounts {
+  readonly passed: number;
+  readonly failed: number;
+  readonly pending: number;
+  /** Tests without a result, for example after a failed `before` hook. */
+  readonly notRun: number;
+}
+
+export interface InstanceOutcome {
+  readonly started: boolean;
+  readonly results: MochaCounts | undefined;
+}
+
+/** The problems of a run, one message per problem; empty when the run is accepted. */
+export function judgeExtensionTestRun(
+  outcomes: Readonly<Record<string, InstanceOutcome>>,
+): string[] {
+  const problems: string[] = [];
+  for (const [label, outcome] of Object.entries(outcomes)) {
+    const { results } = outcome;
+    if (results === undefined) {
+      problems.push(
+        outcome.started
+          ? `${label}: the tests started but did not finish (no result from mocha).`
+          : `${label}: the tests never started (no result from mocha).`,
+      );
+      continue;
+    }
+    if (results.passed <= 0) {
+      problems.push(`${label}: no test passed.`);
+    }
+    if (results.failed > 0) {
+      problems.push(`${label}: ${results.failed} test(s) failed.`);
+    }
+    if (results.pending > 0) {
+      problems.push(`${label}: ${results.pending} test(s) were skipped.`);
+    }
+    if (results.notRun > 0) {
+      problems.push(`${label}: ${results.notRun} test(s) did not run (a hook failed).`);
+    }
+  }
+  return problems;
+}
+
+/** The labels selected with `--label`/`-l` (as `vscode-test` takes them), or all. */
+export function labelsToCheck(args: readonly string[], all: readonly string[]): string[] {
+  const selected: string[] = [];
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index] ?? '';
+    if ((arg === '--label' || arg === '-l') && args[index + 1] !== undefined) {
+      selected.push(args[index + 1] ?? '');
+      index += 1;
+    } else if (arg.startsWith('--label=')) {
+      selected.push(arg.slice('--label='.length));
+    }
+  }
+  return selected.length === 0 ? [...all] : selected;
+}

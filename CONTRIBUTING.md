@@ -53,6 +53,10 @@ way: the canary instance runs with `--log trace`, which prints the environment o
   `docker` does not reach your daemon through `/var/run/docker.sock`, set `DOCKER_HOST`.
 - The output of the canary instance contains the environment of VS Code (allowlisted only, but
   still paths of your machine). Do not paste or share it.
+- `npm run test:extension` fails when an instance did not report a mocha result with at least
+  one passed test and no failed, skipped or unrun test (`scripts/run-extension-tests.mts`):
+  VS Code can exit with code 0 without running any test. For such an instance it prints the
+  lifecycle and extension host lines of its logs, filtered so that no environment is printed.
 - While the canary test runs, VS Code listens for the Chrome DevTools protocol on a random port
   of `127.0.0.1` (`--remote-debugging-port=0`): the test types the passphrase through it. Other
   local processes could connect to that port during the test.

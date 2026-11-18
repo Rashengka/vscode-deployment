@@ -47,6 +47,9 @@ function instanceSettings(instance) {
   };
 }
 
+/** Records the mocha result of each instance (test/extension/support/results.ts). */
+const RESULTS = 'out/test/extension/support/results.js';
+
 const MOCHA = {
   ui: 'bdd',
   timeout: 120_000,
@@ -58,8 +61,9 @@ const MOCHA = {
 export default defineConfig([
   {
     label: 'main',
-    // Everything except canary/: the leak test needs its own instance (below).
-    files: 'out/test/extension/{*.test.js,!(canary)/**/*.test.js}',
+    // Everything except canary/: the leak test needs its own instance (below). RESULTS first:
+    // it records that mocha ran (scripts/run-extension-tests.mts checks it).
+    files: [RESULTS, 'out/test/extension/{*.test.js,!(canary)/**/*.test.js}'],
     // The minimum version from package.json `engines.vscode`.
     version: '1.144.0',
     ...instanceSettings(MAIN_INSTANCE),
@@ -75,7 +79,11 @@ export default defineConfig([
     // searched, and remote debugging, so that the passphrase is typed into the real input box.
     label: 'canary',
     // The environment checks run here too: this instance has trace logging.
-    files: ['out/test/extension/canary/*.test.js', 'out/test/extension/environment.test.js'],
+    files: [
+      RESULTS,
+      'out/test/extension/canary/*.test.js',
+      'out/test/extension/environment.test.js',
+    ],
     version: '1.144.0',
     ...instanceSettings(CANARY_INSTANCE),
     launchArgs: [

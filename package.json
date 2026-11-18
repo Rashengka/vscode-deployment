@@ -119,7 +119,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p test/extension/tsconfig.json --noEmit",
     "test": "vitest run --config vitest.config.mts",
     "test:integration": "vitest run --config vitest.integration.config.mts",
-    "test:extension": "node scripts/prepare-extension-test.mts && tsc -p test/extension/tsconfig.json && vscode-test",
+    "test:extension": "node scripts/prepare-extension-test.mts && tsc -p test/extension/tsconfig.json && node scripts/run-extension-tests.mts",
     "package": "node scripts/package.mts",
     "check:vsix": "node scripts/check-vsix.mts",
     "check:leaks": "node scripts/check-leaks.mts"

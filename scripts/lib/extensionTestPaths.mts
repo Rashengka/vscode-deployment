@@ -70,6 +70,12 @@ export const MAIN_INSTANCE = instance('m');
 /** The instance that runs the secret leak test (trace logging, remote debugging). */
 export const CANARY_INSTANCE = instance('c');
 
+/** Every instance by its label in `.vscode-test.mjs`. */
+export const EXTENSION_TEST_INSTANCES: Readonly<Record<string, ExtensionTestInstance>> = {
+  main: MAIN_INSTANCE,
+  canary: CANARY_INSTANCE,
+};
+
 function createPrivateDirectory(path: string): void {
   // Not recursive: fails with EEXIST if anything appeared at this path in the meantime.
   mkdirSync(path, { mode: 0o700 });
