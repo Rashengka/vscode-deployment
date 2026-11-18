@@ -32,6 +32,7 @@ import { RemoteWindowError } from '../../src/ssh/remoteWindow';
 import type { DeploymentTarget } from '../../src/transport/deploymentTarget';
 import { ScriptedPrompt, TestHome, knownHostsLine, sftpServer } from '../support/connectionFixture';
 import { startSshd, type GeneratedKey, type SshdContainer } from '../support/sshd';
+import { generateTestKeyPair } from '../support/sshKeys';
 
 const realpath = (target: DeploymentTarget): Promise<string> => target.realpath('.');
 
@@ -831,7 +832,7 @@ describe('ConnectionManager against a local OpenSSH server', () => {
           identitiesOnly: true,
         },
       ]);
-      const stranger = ssh2.utils.generateKeyPairSync('ed25519').private;
+      const stranger = generateTestKeyPair(ssh2.utils, 'ed25519').private;
       // The agent holds a key the config does not name (first) and the identity file's key.
       const agent = await startAgent(home, Buffer.from(stranger), [
         { content: encrypted.content, passphrase },

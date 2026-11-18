@@ -18,6 +18,7 @@ import { ConnectionAttemptEndedError } from '../../../src/ssh/passphrase';
 import { UnsupportedKeyError } from '../../../src/ssh/privateKey';
 import { readRegularFile } from '../../../src/ssh/sshConfigFiles';
 import { BaseAgent as Ssh2BaseAgent, utils } from '../../../src/ssh/ssh2Bundle';
+import { generateTestKeyPair } from '../../support/sshKeys';
 
 function sshString(value: Buffer): Buffer {
   const length = Buffer.alloc(4);
@@ -47,7 +48,7 @@ describe('loadIdentities', () => {
 
   it('skips missing default keys quietly', async () => {
     const keys = dir();
-    const pair = utils.generateKeyPairSync('ed25519');
+    const pair = generateTestKeyPair(utils, 'ed25519');
     writeFileSync(join(keys, 'id_rsa'), pair.private, { mode: 0o600 });
 
     const { identities, skipped } = await loadIdentities(
@@ -111,7 +112,7 @@ describe('loadIdentities', () => {
     expect(withPub.identities[0]?.publicKey?.equals(blob)).toBe(true);
 
     // A .pub of another key type is not used.
-    writeFileSync(join(keys, 'id_rsa.pub'), utils.generateKeyPairSync('ed25519').public);
+    writeFileSync(join(keys, 'id_rsa.pub'), generateTestKeyPair(utils, 'ed25519').public);
     const mismatched = await loadIdentities([join(keys, 'id_rsa')], false, readText);
     expect(mismatched.identities[0]?.publicKey).toBeUndefined();
   });
@@ -219,8 +220,12 @@ describe('after the connection attempt ended', () => {
     'never prompts or signs when the server asks to sign (encrypted: %s)',
     async (encrypted) => {
       const pair = encrypted
-        ? utils.generateKeyPairSync('ed25519', { passphrase: 'p', cipher: 'aes256-ctr', rounds: 4 })
-        : utils.generateKeyPairSync('ed25519');
+        ? generateTestKeyPair(utils, 'ed25519', {
+            passphrase: 'p',
+            cipher: 'aes256-ctr',
+            rounds: 4,
+          })
+        : generateTestKeyPair(utils, 'ed25519');
       const publicKey = parsed(pair.public);
       const abort = new AbortController();
       let prompts = 0;
@@ -258,8 +263,8 @@ describe('after the connection attempt ended', () => {
 
 describe('IdentitiesOnly with the SSH agent', () => {
   it('offers only agent keys that belong to an identity file', async () => {
-    const own = utils.generateKeyPairSync('ed25519');
-    const other = utils.generateKeyPairSync('ed25519');
+    const own = generateTestKeyPair(utils, 'ed25519');
+    const other = generateTestKeyPair(utils, 'ed25519');
     const ownPublic = parsed(own.public);
     class FakeAgent extends Ssh2BaseAgent {
       getIdentities(callback: (error: Error | null, keys?: ParsedKey[]) => void): void {

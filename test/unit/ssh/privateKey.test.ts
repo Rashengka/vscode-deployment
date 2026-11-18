@@ -18,6 +18,7 @@ import {
   parsePublicKeyLine,
 } from '../../../src/ssh/privateKey';
 import { utils } from '../../../src/ssh/ssh2Bundle';
+import { generateTestKeyPair } from '../../support/sshKeys';
 
 const FILE = '/home/deploy/.ssh/id_test';
 const PASSPHRASE = randomBytes(9).toString('hex');
@@ -32,11 +33,7 @@ function opensshKey(
   options: { cipher?: string; passphrase?: string } = {},
 ): Buffer {
   const bits = type === 'rsa' ? 2048 : type === 'ecdsa' ? 256 : undefined;
-  const generate = utils.generateKeyPairSync as (
-    keyType: string,
-    options: Record<string, unknown>,
-  ) => { private: string };
-  const pair = generate(type, {
+  const pair = generateTestKeyPair(utils, type, {
     ...(bits === undefined ? {} : { bits }),
     ...(options.passphrase === undefined
       ? {}
@@ -253,7 +250,7 @@ describe('inspectKeyFile', () => {
       () => `${DASHES}BEGIN DSA PRIVATE KEY${DASHES}\nAAAA\n`,
       /DSA keys are not supported/,
     ],
-    ['a public key', () => utils.generateKeyPairSync('ed25519').public, /this is a public key/],
+    ['a public key', () => generateTestKeyPair(utils, 'ed25519').public, /this is a public key/],
     ['an empty file', () => '', /not a private key in a supported format/],
     ['random text', () => 'hello', /not a private key in a supported format/],
   ])('refuses %s with a clear message', (_, content, message) => {
@@ -450,7 +447,7 @@ describe('decryptKeyFile', () => {
 
 describe('parsePublicKeyLine', () => {
   it('reads a .pub line and checks that the type matches the blob', () => {
-    const line = utils.generateKeyPairSync('ed25519', { comment: 'deploy@example.com' }).public;
+    const line = generateTestKeyPair(utils, 'ed25519', { comment: 'deploy@example.com' }).public;
     const parsed = parsePublicKeyLine(line);
     expect(parsed?.keyType).toBe('ssh-ed25519');
     expect(parsePublicKeyLine(line.replace('ssh-ed25519', 'ssh-rsa'))).toBeUndefined();
