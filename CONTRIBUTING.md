@@ -57,6 +57,9 @@ way: the canary instance runs with `--log trace`, which prints the environment o
   one passed test and no failed, skipped or unrun test (`scripts/run-extension-tests.mts`):
   VS Code can exit with code 0 without running any test. For such an instance it prints the
   lifecycle and extension host lines of its logs, filtered so that no environment is printed.
+  As its last step it writes a completion marker; `node scripts/check-extension-run.mts` (a
+  separate CI step) fails without it and prints the run log (process ids, signals, exit codes
+  and the state of each test).
 - While the canary test runs, VS Code listens for the Chrome DevTools protocol on a random port
   of `127.0.0.1` (`--remote-debugging-port=0`): the test types the passphrase through it. Other
   local processes could connect to that port during the test.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   judgeExtensionTestRun,
+  judgeRunMarker,
   labelsToCheck,
   type InstanceOutcome,
 } from '../../scripts/lib/extensionTestResults.mts';
@@ -56,6 +57,41 @@ describe('labelsToCheck', () => {
     expect(labelsToCheck(['-l', 'main', '--label=canary'], ['main', 'canary'])).toEqual([
       'main',
       'canary',
+    ]);
+  });
+});
+
+describe('judgeRunMarker', () => {
+  const counts = { passed: 5, failed: 0, pending: 0, notRun: 0 };
+
+  it('accepts a marker with every required label and no problem', () => {
+    expect(
+      judgeRunMarker({ labels: { main: counts, canary: counts }, problems: [] }, [
+        'main',
+        'canary',
+      ]),
+    ).toEqual([]);
+  });
+
+  it('fails without a marker (the run ended before it finished)', () => {
+    expect(judgeRunMarker(undefined, ['main', 'canary'])).toEqual([
+      'the extension test run did not complete (no completion marker).',
+    ]);
+  });
+
+  it('fails for a missing label, a label without result and recorded problems', () => {
+    expect(
+      judgeRunMarker({ labels: { main: null }, problems: ['main: no test passed.'] }, [
+        'main',
+        'canary',
+      ]),
+    ).toEqual([
+      'main: no test passed.',
+      'main: no result in the completion marker.',
+      'canary: no result in the completion marker.',
+    ]);
+    expect(judgeRunMarker({ labels: 'x' }, ['main'])).toEqual([
+      'the completion marker of the extension test run is not valid.',
     ]);
   });
 });

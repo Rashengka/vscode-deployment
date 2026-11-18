@@ -5,8 +5,8 @@
  * VS Code can exit with code 0 without ever running mocha, and `vscode-test` would report that
  * as a success. The file names match `scripts/lib/extensionTestResults.mts`.
  */
-import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 
 const STARTED_FILE = 'mocha-started.json';
 const RESULTS_FILE = 'mocha-results.json';
@@ -60,7 +60,27 @@ function count(suite: Mocha.Suite, counts: Counts): void {
   }
 }
 
+/**
+ * Appends to the run log of `scripts/run-extension-tests.mts` (in the parent folder), so that a
+ * run that ends early shows how far each instance got. Test titles and states only.
+ */
+function progress(message: string): void {
+  const instance = basename(testRoot());
+  appendFileSync(
+    join(dirname(testRoot()), 'run.log'),
+    `[mocha ${instance} ${new Date().toISOString()}] ${message}\n`,
+  );
+}
+
 writeFileSync(join(testRoot(), STARTED_FILE), `${JSON.stringify({ started: true })}\n`);
+progress(`started, extension host pid ${process.pid}`);
+
+afterEach(function () {
+  const test = this.currentTest;
+  if (test !== undefined) {
+    progress(`${test.state ?? 'no state'}: ${test.fullTitle()}`);
+  }
+});
 
 after(function () {
   const root = this.test?.parent;
@@ -69,4 +89,5 @@ after(function () {
     count(root, counts);
   }
   writeFileSync(join(testRoot(), RESULTS_FILE), `${JSON.stringify(counts)}\n`);
+  progress(`finished: ${JSON.stringify(counts)}`);
 });

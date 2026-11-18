@@ -72,3 +72,36 @@ export function labelsToCheck(args: readonly string[], all: readonly string[]): 
   }
   return selected.length === 0 ? [...all] : selected;
 }
+
+/**
+ * Written by `scripts/run-extension-tests.mts` into the extension test root as its very last
+ * step, after it has judged every instance. A separate CI step checks it
+ * (`scripts/check-extension-run.mts`): the test run itself can end with exit code 0 before it
+ * gets that far, and then nothing in that process can report it.
+ */
+export const RUN_MARKER_FILE = 'run-complete.json';
+/** Progress and signals of the test run (pids, exit codes, signal names; no environment). */
+export const RUN_LOG_FILE = 'run.log';
+
+export interface RunMarker {
+  readonly labels: Readonly<Record<string, MochaCounts | null>>;
+  readonly problems: readonly string[];
+}
+
+/** The problems of a finished run as its marker records it; `undefined` = no marker. */
+export function judgeRunMarker(marker: unknown, required: readonly string[]): string[] {
+  if (marker === undefined) {
+    return ['the extension test run did not complete (no completion marker).'];
+  }
+  const record = marker as Partial<RunMarker>;
+  if (typeof record.labels !== 'object' || !Array.isArray(record.problems)) {
+    return ['the completion marker of the extension test run is not valid.'];
+  }
+  const problems = record.problems.map(String);
+  for (const label of required) {
+    if (!(label in record.labels) || record.labels[label] === null) {
+      problems.push(`${label}: no result in the completion marker.`);
+    }
+  }
+  return problems;
+}

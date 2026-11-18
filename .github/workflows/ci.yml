@@ -134,6 +134,12 @@ jobs:
           node-version-file: .nvmrc
       - run: npm ci --ignore-scripts
       - run: xvfb-run -a npm run test:extension
+      # The step above has ended with exit code 0 before the run finished (right after the second
+      # VS Code instance started). This separate process fails unless the run wrote its
+      # completion marker after checking the mocha results of every instance.
+      - name: Verify that every extension test instance reported its results
+        if: always()
+        run: node scripts/check-extension-run.mts
 
   package:
     name: Package
