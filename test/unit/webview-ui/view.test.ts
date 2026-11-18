@@ -74,6 +74,13 @@ class FakeDocument implements DocumentLike {
   }
 }
 
+function asFakeElement(node: unknown): FakeElement {
+  if (!(node instanceof FakeElement)) {
+    throw new Error('Expected createNode to return an element');
+  }
+  return node;
+}
+
 function elements(node: ViewNode): ElementNode[] {
   return typeof node === 'string' ? [] : [node, ...node.children.flatMap(elements)];
 }
@@ -152,20 +159,18 @@ describe('rendering untrusted text', () => {
 describe('createNode', () => {
   it('creates text nodes for strings', () => {
     const doc = new FakeDocument();
-    const node = createNode(
-      doc,
-      h('div', { class: 'x', title: undefined }, PAYLOAD),
-    ) as FakeElement;
+    const node = asFakeElement(
+      createNode(doc, h('div', { class: 'x', title: undefined }, PAYLOAD)),
+    );
     expect(node.children).toEqual([new FakeText(PAYLOAD)]);
     expect([...node.attributes]).toEqual([['class', 'x']]);
   });
 
   it('sets boolean attributes when true and leaves them out when false', () => {
     const doc = new FakeDocument();
-    const node = createNode(
-      doc,
-      h('input', { type: 'checkbox', checked: true, disabled: false }),
-    ) as FakeElement;
+    const node = asFakeElement(
+      createNode(doc, h('input', { type: 'checkbox', checked: true, disabled: false })),
+    );
     expect([...node.attributes]).toEqual([
       ['type', 'checkbox'],
       ['checked', ''],
