@@ -17,6 +17,7 @@ import {
   knownHostsLine,
   sftpServer as testServer,
 } from '../../support/connectionFixture';
+import { generateTestKeyPair } from '../../support/sshKeys';
 
 // These tests never reach the network: every case fails before a socket would be opened.
 const server: SftpServer = {
@@ -137,15 +138,14 @@ describe('ConnectionManager options passed to ssh2', () => {
   it('passes neither key nor passphrase, no debug hook, exact algorithm lists and no agent forwarding', async () => {
     const home = new TestHome();
     try {
-      const pair = realSsh2.utils.generateKeyPairSync('ed25519', {
+      const pair = generateTestKeyPair(realSsh2.utils, 'ed25519', {
         passphrase: 'not-used-here',
         cipher: 'aes256-ctr',
         rounds: 4,
       });
       const key = home.writeKey('id_ed25519', Buffer.from(pair.private));
       home.writeConfig([{ alias: 'test', port: 2222, identityFiles: [key] }]);
-      const hostKey = realSsh2.utils
-        .generateKeyPairSync('ed25519')
+      const hostKey = generateTestKeyPair(realSsh2.utils, 'ed25519')
         .public.split(' ')
         .slice(0, 2)
         .join(' ');

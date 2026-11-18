@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as vscode from 'vscode';
 import { createConnectionManager } from './adapters/connection';
+import { registerConnectionCommands } from './commands/connectionCommands';
 import { OPEN_CONFIG_COMMAND, openConfig } from './commands/openConfig';
 import { CONTEXT_HAS_CONFIG, CONTEXT_HAS_UPLOAD_TARGET } from './config/contextKeys';
 import {
@@ -9,10 +10,15 @@ import {
   describeProblem,
   loadFolders,
   watchSpec,
+  type FolderRef,
   type FoldersSnapshot,
 } from './config/folders';
 import { configRoot } from './config/paths';
 import type { StoreOptions } from './config/store';
+import { DeploymentLog } from './log/deploymentLog';
+import { ConnectionStates, describeDisconnect } from './ui/connectionPresentation';
+import { configuredSftpServers } from './ui/serverChoices';
+import { ConnectionStatusBar } from './ui/statusBar';
 
 export const HELLO_WORLD_COMMAND = 'vscodeDeployment.helloWorld';
 export const HELLO_WORLD_MESSAGE = 'Hello from Deployment.';
@@ -31,6 +37,17 @@ function storeOptions(): StoreOptions {
   return { root: configRoot({ platform: process.platform, env: process.env, homedir: homedir() }) };
 }
 
+/** The local workspace folders, in the form the configuration loader takes. */
+function workspaceFolderRefs(): FolderRef[] {
+  return (vscode.workspace.workspaceFolders ?? [])
+    .filter((folder) => folder.uri.scheme === 'file')
+    .map((folder) => ({
+      key: folder.uri.toString(),
+      name: folder.name,
+      fsPath: folder.uri.fsPath,
+    }));
+}
+
 /**
  * Keeps the context keys in sync with the configuration files of all workspace folders,
  * including files created or edited in another window, and warns once about each unusable
@@ -41,6 +58,11 @@ class ConfigTracker implements vscode.Disposable {
   private readonly notifications = new NotificationDeduplicator();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private running: Promise<void> = Promise.resolve();
+  private readonly onKeys: (keys: FoldersSnapshot['keys']) => void;
+
+  constructor(onKeys: (keys: FoldersSnapshot['keys']) => void) {
+    this.onKeys = onKeys;
+  }
 
   /** Schedules a reload; several calls in quick succession cause a single reload. */
   schedule(): void {
@@ -63,14 +85,7 @@ class ConfigTracker implements vscode.Disposable {
     let snapshot = NO_FOLDERS;
     let failure: string | null = null;
     try {
-      const folders = (vscode.workspace.workspaceFolders ?? [])
-        .filter((folder) => folder.uri.scheme === 'file')
-        .map((folder) => ({
-          key: folder.uri.toString(),
-          name: folder.name,
-          fsPath: folder.uri.fsPath,
-        }));
-      snapshot = await loadFolders(folders, storeOptions());
+      snapshot = await loadFolders(workspaceFolderRefs(), storeOptions());
       this.updateWatchers(snapshot.configDirs);
     } catch (error) {
       // For example an invalid configuration root; every folder then counts as unconfigured.
@@ -83,6 +98,7 @@ class ConfigTracker implements vscode.Disposable {
       CONTEXT_HAS_UPLOAD_TARGET,
       snapshot.keys.hasUploadTarget,
     );
+    this.onKeys(snapshot.keys);
     const failureMessage =
       failure === null ? null : `Deployment configuration could not be loaded: ${failure}`;
     if (this.notifications.shouldShow('', failureMessage) && failureMessage !== null) {
@@ -147,16 +163,43 @@ class ConfigTracker implements vscode.Disposable {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  const tracker = new ConfigTracker();
+  // Written to a file in VS Code's log folder as well; see SECURITY.md (what is logged).
+  const channel = vscode.window.createOutputChannel('Deployment', { log: true });
+  const log = new DeploymentLog(channel);
+  const states = new ConnectionStates();
+  const statusBar = new ConnectionStatusBar(states);
+  const tracker = new ConfigTracker((keys) => {
+    statusBar.setConfigured(keys.hasConfig);
+  });
   // Closes every connection when the extension is deactivated.
   const connections = createConnectionManager(context.extensionPath);
+  const stateEvents = connections.onDidChangeState((event) => {
+    states.apply(event);
+    statusBar.update();
+    const what = event.status === 'disconnected' ? describeDisconnect(event.reason) : event.status;
+    log.info(event.serverName, 'Connection', what);
+  });
   context.subscriptions.push(
+    channel,
+    statusBar,
     tracker,
     {
       dispose: () => {
+        stateEvents.dispose();
         connections.dispose();
       },
     },
+    ...registerConnectionCommands({
+      connections,
+      states,
+      log,
+      showLog: () => {
+        channel.show(true);
+      },
+      loadServers: async () =>
+        configuredSftpServers(await loadFolders(workspaceFolderRefs(), storeOptions())),
+      openConfigCommand: OPEN_CONFIG_COMMAND,
+    }),
     vscode.commands.registerCommand(HELLO_WORLD_COMMAND, () => {
       void vscode.window.showInformationMessage(HELLO_WORLD_MESSAGE);
       return HELLO_WORLD_MESSAGE;

@@ -26,6 +26,7 @@ import type {
 } from 'ssh2';
 import type { SftpServer } from '../config/model';
 import { SftpTarget } from '../transport/sftpTarget';
+import { ConnectionError } from './connectionError';
 import type { DeploymentTarget } from '../transport/deploymentTarget';
 import { transportAlgorithms } from './algorithms';
 import {
@@ -74,6 +75,7 @@ export type DisconnectReason =
   | 'disposed';
 
 export interface ConnectionStateEvent {
+  /** The connection key (`ServerReference.key`, by default the server id). */
   readonly serverId: string;
   readonly serverName: string;
   readonly status: ConnectionStatus;
@@ -81,10 +83,30 @@ export interface ConnectionStateEvent {
   readonly reason?: DisconnectReason;
 }
 
+/** What is known about an open connection, for Test Connection and the status bar. */
+export interface ConnectionDetails {
+  /** The user name used to log in. */
+  readonly user: string;
+  /** `user@host:port`. */
+  readonly description: string;
+  /**
+   * The login banner exactly as the server sent it, or `undefined` when it sent none.
+   * Untrusted text: sanitize before showing it.
+   */
+  readonly banner: string | undefined;
+}
+
 export interface ServerReference {
   readonly server: SftpServer;
   /** The config.json the server comes from; watched while connected. */
   readonly configFile: string | undefined;
+  /**
+   * Identifies the connection; default `server.id`. Server ids are unique within one
+   * config.json only, so servers of several workspace folders need a key that includes the
+   * folder: otherwise two folders would share a connection (and only one config.json would be
+   * watched). Events and the methods that take a `serverId` use this key.
+   */
+  readonly key?: string;
 }
 
 export interface ConnectionManagerOptions {
@@ -121,6 +143,9 @@ export class ConfigurationChangedError extends Error {
   }
 }
 
+/** Characters of login banners kept for Test Connection. */
+const MAX_BANNER_LENGTH = 8192;
+
 const ALL_METHODS_FAILED = 'All configured authentication methods failed';
 
 /** known_hosts lists key types for the host that the server does not offer (any more). */
@@ -131,12 +156,7 @@ export class HostKeyTypeUnavailableError extends Error {
   }
 }
 
-export class ConnectionError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ConnectionError';
-  }
-}
+export { ConnectionError };
 
 interface Connection {
   readonly serverId: string;
@@ -160,6 +180,8 @@ interface Connection {
   changedFile: string | undefined;
   /** Aborted when the connection closes: ends prompts and key derivation of the attempt. */
   readonly abort: AbortController;
+  /** Set once the connection is open. */
+  details: ConnectionDetails | undefined;
 }
 
 /** A timeout that can be paused while the extension waits for the user. */
@@ -270,6 +292,12 @@ export class ConnectionManager {
     return connection.connected ? 'connected' : 'connecting';
   }
 
+  /** User, address and login banner of an open connection; `undefined` when not connected. */
+  details(serverId: string): ConnectionDetails | undefined {
+    const connection = this.connections.get(serverId);
+    return connection?.connected === true ? connection.details : undefined;
+  }
+
   /** Ids of the servers with an open or opening connection. */
   activeServerIds(): string[] {
     return [...this.connections.keys()];
@@ -288,18 +316,19 @@ export class ConnectionManager {
       return Promise.reject(new ConnectionError('The extension is shutting down.'));
     }
     const server = deepFreeze(structuredClone(reference.server));
-    const changed = this.changedOutside.get(server.id);
+    const key = reference.key ?? server.id;
+    const changed = this.changedOutside.get(key);
     if (changed !== undefined) {
-      this.changedOutside.delete(server.id);
+      this.changedOutside.delete(key);
       return Promise.reject(new ConfigurationChangedError(changed.name, changed.file));
     }
-    let connection = this.connections.get(server.id);
+    let connection = this.connections.get(key);
     if (connection !== undefined && connection.settingsKey !== settingsKey(server)) {
       this.close(connection, 'reconfigured');
       connection = undefined;
     }
     if (connection === undefined) {
-      connection = this.open(server, reference.configFile);
+      connection = this.open(key, server, reference.configFile);
     }
     const current = connection;
     const result = current.queue.then(async () => {
@@ -358,9 +387,9 @@ export class ConnectionManager {
     return this.ssh2Module;
   }
 
-  private open(server: SftpServer, configFile: string | undefined): Connection {
+  private open(key: string, server: SftpServer, configFile: string | undefined): Connection {
     const connection: Connection = {
-      serverId: server.id,
+      serverId: key,
       serverName: server.name,
       settingsKey: settingsKey(server),
       idleMinutes: server.idleDisconnectMinutes,
@@ -374,13 +403,14 @@ export class ConnectionManager {
       closedReason: undefined,
       changedFile: undefined,
       abort: new AbortController(),
+      details: undefined,
     };
-    this.connections.set(server.id, connection);
-    this.emit({ serverId: server.id, serverName: server.name, status: 'connecting' });
+    this.connections.set(key, connection);
+    this.emit({ serverId: key, serverName: server.name, status: 'connecting' });
     connection.ready = this.connect(connection, server, configFile).then(
       (target) => {
         if (connection.closedReason === undefined) {
-          this.emit({ serverId: server.id, serverName: server.name, status: 'connected' });
+          this.emit({ serverId: key, serverName: server.name, status: 'connected' });
           this.startIdleTimer(connection);
         }
         return target;
@@ -414,6 +444,7 @@ export class ConnectionManager {
     }
     connection.connected = false;
     connection.client = undefined;
+    connection.details = undefined;
     if (this.connections.get(connection.serverId) === connection) {
       this.connections.delete(connection.serverId);
     }
@@ -644,6 +675,14 @@ export class ConnectionManager {
 
     return new Promise<DeploymentTarget>((resolve, reject) => {
       let settled = false;
+      /**
+       * The banners the server sent during authentication (SSH_MSG_USERAUTH_BANNER), joined and
+       * limited in length (a server may send any number of them).
+       */
+      let banner: string | undefined;
+      client.on('banner', (message: string) => {
+        banner = `${banner ?? ''}${message}`.slice(0, MAX_BANNER_LENGTH);
+      });
       const fail = (error: Error): void => {
         if (settled) {
           return;
@@ -714,6 +753,11 @@ export class ConnectionManager {
           settled = true;
           stopTimers();
           connection.connected = true;
+          connection.details = {
+            user: target.resolved.user,
+            description: target.description,
+            banner,
+          };
           resolve(new SftpTarget(sftp, target.description));
         });
       });

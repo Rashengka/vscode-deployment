@@ -51,8 +51,48 @@
         "command": "vscodeDeployment.openConfig",
         "title": "Open Deployment Config (JSON)",
         "category": "Deployment"
+      },
+      {
+        "command": "vscodeDeployment.testConnection",
+        "title": "Test Connection",
+        "category": "Deployment"
+      },
+      {
+        "command": "vscodeDeployment.disconnect",
+        "title": "Disconnect",
+        "category": "Deployment"
+      },
+      {
+        "command": "vscodeDeployment.disconnectAll",
+        "title": "Disconnect All",
+        "category": "Deployment"
+      },
+      {
+        "command": "vscodeDeployment.showConnectionMenu",
+        "title": "Show Connection Menu",
+        "category": "Deployment"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "vscodeDeployment.testConnection",
+          "when": "vscodeDeployment.hasConfig"
+        },
+        {
+          "command": "vscodeDeployment.disconnect",
+          "when": "vscodeDeployment.connected"
+        },
+        {
+          "command": "vscodeDeployment.disconnectAll",
+          "when": "vscodeDeployment.connected"
+        },
+        {
+          "command": "vscodeDeployment.showConnectionMenu",
+          "when": "false"
+        }
+      ]
+    },
     "jsonValidation": [
       {
         "fileMatch": [
@@ -79,7 +119,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p test/extension/tsconfig.json --noEmit",
     "test": "vitest run --config vitest.config.mts",
     "test:integration": "vitest run --config vitest.integration.config.mts",
-    "test:extension": "node scripts/prepare-extension-test.mts && tsc -p test/extension/tsconfig.json && vscode-test",
+    "test:extension": "node scripts/prepare-extension-test.mts && tsc -p test/extension/tsconfig.json && node scripts/run-extension-tests.mts",
     "package": "node scripts/package.mts",
     "check:vsix": "node scripts/check-vsix.mts",
     "check:leaks": "node scripts/check-leaks.mts",

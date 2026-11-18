@@ -8,10 +8,11 @@ import {
 } from '../../../src/ssh/hostKeyPolicy';
 import { parseKnownHosts, sha256Fingerprint } from '../../../src/ssh/knownHosts';
 import { supportedServerHostKeyAlgorithms, utils } from '../../../src/ssh/ssh2Bundle';
+import { generateTestKeyPair } from '../../support/sshKeys';
 
 function publicKey(type: 'ed25519' | 'ecdsa' | 'rsa'): { line: string; blob: Buffer } {
   const options = type === 'rsa' ? { bits: 2048 } : type === 'ecdsa' ? { bits: 256 } : {};
-  const line = utils.generateKeyPairSync(type, options as never).public.trim();
+  const line = generateTestKeyPair(utils, type, options).public.trim();
   return { line, blob: Buffer.from(line.split(' ')[1] ?? '', 'base64') };
 }
 

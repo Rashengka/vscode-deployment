@@ -18,6 +18,7 @@ X11Forwarding no
 PermitTunnel no
 
 Subsystem sftp internal-sftp
+Banner /etc/ssh/banner.test
 LogLevel VERBOSE
 
 # The tests fail authentication and abort connections on purpose, many times in a row; without

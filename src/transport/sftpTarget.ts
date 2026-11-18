@@ -1,9 +1,22 @@
 /** {@link DeploymentTarget} over an SFTP session of an SSH connection. */
 import type { SFTPWrapper, Stats } from 'ssh2';
+import { ConnectionError } from '../ssh/connectionError';
 import type { DeploymentTarget, RemoteEntryType, RemoteStat } from './deploymentTarget';
 
 /** SFTP status code for a missing file (draft-ietf-secsh-filexfer, SSH_FX_NO_SUCH_FILE). */
 const NO_SUCH_FILE = 2;
+
+/**
+ * SFTP status errors carry the server's numeric status code and are returned as they are.
+ * Anything else means the SFTP channel itself failed (closed, no response from the server);
+ * that becomes a {@link ConnectionError}, so that callers can tell it from a bug.
+ */
+function channelError(error: Error, description: string): Error {
+  if (typeof (error as Error & { code?: unknown }).code === 'number') {
+    return error;
+  }
+  return new ConnectionError(`The SFTP session to ${description} ended: ${error.message}`);
+}
 
 function entryType(stats: Stats): RemoteEntryType {
   if (stats.isFile()) {
@@ -32,7 +45,7 @@ export class SftpTarget implements DeploymentTarget {
     return new Promise((resolve, reject) => {
       this.sftp.realpath(path, (error, absolute) => {
         if (error instanceof Error) {
-          reject(error);
+          reject(channelError(error, this.description));
         } else {
           resolve(absolute);
         }
@@ -53,7 +66,7 @@ export class SftpTarget implements DeploymentTarget {
         } else if ((error as Error & { code?: unknown }).code === NO_SUCH_FILE) {
           resolve(null);
         } else {
-          reject(error);
+          reject(channelError(error, this.description));
         }
       });
     });

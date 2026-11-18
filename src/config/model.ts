@@ -1,6 +1,6 @@
 /**
  * Data model of the per-project configuration (`config.json`) and the upload history
- * (`state.json`). Both files live outside the project repository and never contain secrets:
+ * (`state.json`). Both files live outside the project repository and never contain credentials:
  * the model has no field for a password, a passphrase or key content.
  */
 
