@@ -80,6 +80,8 @@ export function labelsToCheck(args: readonly string[], all: readonly string[]): 
  * gets that far, and then nothing in that process can report it.
  */
 export const RUN_MARKER_FILE = 'run-complete.json';
+/** The complete output of `vscode-test` (not shown: it contains what VS Code traces). */
+export const OUTPUT_FILE = 'vscode-test-output.log';
 /** Progress and signals of the test run (pids, exit codes, signal names; no environment). */
 export const RUN_LOG_FILE = 'run.log';
 

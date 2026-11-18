@@ -79,7 +79,13 @@ export function extensionTestEnvironment(
           APPDATA: `${dirs.xdg}${separator}AppData${separator}Roaming`,
           LOCALAPPDATA: `${dirs.xdg}${separator}AppData${separator}Local`,
         }
-      : {}),
+      : {
+          // VS Code's pty host resolves the "shell environment" by running `$SHELL -i -l -c`
+          // even with --force-disable-user-env, and logs the result at trace level. `true`
+          // prints nothing, so no login shell (and no system profile script) runs and the
+          // result is empty. (VS Code replaces /bin/false with /bin/bash.)
+          SHELL: '/usr/bin/true',
+        }),
     ...extra,
   };
   const replaced = new Set(Object.keys(set).map(normalize));

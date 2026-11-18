@@ -3,9 +3,8 @@
  * instance really ran its tests (see `scripts/lib/extensionTestResults.mts`): `vscode-test`
  * reports success when VS Code exits with code 0, even when mocha never ran.
  *
- * When an instance has no result, it prints what VS Code logged about the extension host and
- * shutting down, filtered to short structural lines (never the environment: with `--log trace`
- * VS Code logs it, and CI logs are public).
+ * When an instance has no result, it lists the log files VS Code wrote (names and sizes only:
+ * with `--log trace` VS Code logs its environment, and CI logs are public).
  *
  * As its last step it writes a completion marker, which a separate CI step checks
  * (`scripts/check-extension-run.mts`), and it records its process ids, the signals it receives
@@ -16,6 +15,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import {
   appendFileSync,
+  createWriteStream,
   existsSync,
   readdirSync,
   readFileSync,
@@ -24,8 +24,11 @@ import {
 } from 'node:fs';
 import * as os from 'node:os';
 import { join, relative } from 'node:path';
+import { createInterface } from 'node:readline';
+import { MochaOutputFilter } from './lib/extensionTestOutput.mts';
 import {
   RESULTS_FILE,
+  OUTPUT_FILE,
   RUN_LOG_FILE,
   RUN_MARKER_FILE,
   STARTED_FILE,
@@ -92,10 +95,32 @@ if (process.platform !== 'win32') {
 }
 // Notices when the parent process ends while the tests run: this process is then reparented.
 const parentAtStart = process.ppid;
+/**
+ * The status flags of this process's stdout (`/proc/self/fdinfo/1`, Linux only) in octal: they
+ * belong to the open pipe shared with the parent processes, so another process switching it to
+ * O_NONBLOCK (04000) shows here.
+ */
+function stdoutFlags(): string | undefined {
+  if (process.platform !== 'linux') {
+    return undefined;
+  }
+  const flags = /^flags:\s+(\d+)$/m.exec(readFileSync('/proc/self/fdinfo/1', 'utf8'));
+  return flags?.[1];
+}
+let lastFlags = stdoutFlags();
+if (lastFlags !== undefined) {
+  note(`stdout flags ${lastFlags}`);
+}
+let parentEnded = false;
 const heartbeat = setInterval(() => {
-  if (process.ppid !== parentAtStart) {
+  if (!parentEnded && process.ppid !== parentAtStart) {
     note(`parent ${parentAtStart} ended; new parent ${process.ppid}`);
-    clearInterval(heartbeat);
+    parentEnded = true;
+  }
+  const flags = stdoutFlags();
+  if (flags !== lastFlags) {
+    note(`stdout flags changed from ${lastFlags ?? 'none'} to ${flags ?? 'none'}`);
+    lastFlags = flags;
   }
 }, 250);
 const SIGNALS: readonly NodeJS.Signals[] =
@@ -114,16 +139,39 @@ process.on('exit', (code) => {
 });
 
 const cli = join(REPO_ROOT, 'node_modules', '@vscode', 'test-cli', 'out', 'bin.mjs');
-const child = spawn(process.execPath, [cli, ...args], { cwd: REPO_ROOT, stdio: 'inherit' });
-note(`vscode-test started: pid ${child.pid ?? 'none'}`);
+// Not inherited: the test instances must not share our stdout (and the CI log) with VS Code.
+// The full output goes to a file; the console gets only mocha's results (see the filter).
+const outputFile = join(EXTENSION_TEST_ROOT, OUTPUT_FILE);
+const output = createWriteStream(outputFile, { flags: 'a', mode: 0o600 });
+const child = spawn(process.execPath, [cli, ...args], {
+  cwd: REPO_ROOT,
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+note(`vscode-test started: pid ${child.pid ?? 'none'}; its output goes to ${outputFile}`);
+const filter = new MochaOutputFilter();
+let hidden = 0;
+for (const stream of [child.stdout, child.stderr]) {
+  stream.pipe(output, { end: false });
+  createInterface({ input: stream }).on('line', (line) => {
+    const shown = filter.accept(line);
+    if (shown === undefined) {
+      hidden += 1;
+    } else {
+      console.log(shown);
+    }
+  });
+}
 const run = await new Promise<{ status: number | null }>((resolve, reject) => {
   child.once('error', reject);
-  child.once('exit', (status, signal) => {
+  // 'close' comes after the output streams have ended, so every line has been handled.
+  child.once('close', (status, signal) => {
     note(`vscode-test exited: code ${status ?? 'none'}, signal ${signal ?? 'none'}`);
     clearInterval(heartbeat);
     resolve({ status });
   });
 });
+output.end();
+note(`${hidden} output lines of vscode-test were not shown (see ${OUTPUT_FILE})`);
 
 function readCounts(file: string): MochaCounts | undefined {
   if (!existsSync(file)) {
@@ -154,11 +202,6 @@ for (const [label, outcome] of Object.entries(outcomes)) {
   );
 }
 
-/** Lines about the extension host and shutting down; never lines that may carry variables. */
-const STRUCTURAL =
-  /extension ?host|exthost|terminat|crash|exit|lifecycle|quit|shutdown|unload|close|error/i;
-const UNSAFE = /env|PATH|HOME|getUnixShell|VSCODE_TEST_OPTIONS|=|"[A-Z_]{3,}"/;
-
 function filesBelow(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
@@ -173,19 +216,9 @@ function printDiagnostics(label: string): void {
     console.error(`  [${label}] VS Code wrote no logs.`);
     return;
   }
+  // Only names and sizes: the logs of the canary instance are trace logs with the environment.
   for (const file of filesBelow(logs)) {
-    const name = relative(logs, file);
-    console.error(`  [${label}] log ${name} (${statSync(file).size} bytes)`);
-    if (!/(^|\/)(main|renderer|exthost|sharedprocess)\.log$/.test(name)) {
-      continue;
-    }
-    const lines = readFileSync(file, 'utf8')
-      .split('\n')
-      .filter((line) => STRUCTURAL.test(line) && !UNSAFE.test(line))
-      .slice(-40);
-    for (const line of lines) {
-      console.error(`    ${line.slice(0, 200)}`);
-    }
+    console.error(`  [${label}] log ${relative(logs, file)} (${statSync(file).size} bytes)`);
   }
 }
 

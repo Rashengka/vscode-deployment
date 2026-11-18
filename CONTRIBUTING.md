@@ -55,8 +55,15 @@ way: the canary instance runs with `--log trace`, which prints the environment o
   still paths of your machine). Do not paste or share it.
 - `npm run test:extension` fails when an instance did not report a mocha result with at least
   one passed test and no failed, skipped or unrun test (`scripts/run-extension-tests.mts`):
-  VS Code can exit with code 0 without running any test. For such an instance it prints the
-  lifecycle and extension host lines of its logs, filtered so that no environment is printed.
+  VS Code can exit with code 0 without running any test. For such an instance it lists the log
+  files VS Code wrote.
+- The output of `vscode-test` (and so of VS Code) goes to `vscode-test-output.log` in the test
+  folder, never to the console: the canary instance traces its environment. The console (and
+  the CI log) shows only mocha's results, chosen by an allowlist of line shapes
+  (`scripts/lib/extensionTestOutput.mts`). `SHELL` is `/usr/bin/true` in the test instances
+  (VS Code replaces `/bin/false` with `/bin/bash`), because VS Code's pty host otherwise runs a
+  login shell to read its environment (also with `--force-disable-user-env`) and traces the
+  result.
   As its last step it writes a completion marker; `node scripts/check-extension-run.mts` (a
   separate CI step) fails without it and prints the run log (process ids, signals, exit codes
   and the state of each test).

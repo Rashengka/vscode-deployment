@@ -77,7 +77,10 @@ Each search proves that it can find what it looks for: the passphrase is planted
 files in each encoding, and a marker and a second key held by the test (parsed by ssh2, and as
 OpenSSH key text) are found in the heap snapshots. Every location must contain at least one
 file and one byte, and the logs at least one line. The test also checks that the environment
-VS Code logs at trace level contains only the variables the tests allow.
+VS Code logs at trace level contains only the variables the tests allow. The trace output of
+the test instance goes to a file only, never to the CI log, and the instance runs with `SHELL`
+set to `/usr/bin/true`: VS Code 1.144 reads the environment of a login shell for its terminal
+host even with `--force-disable-user-env`, and traces it.
 
 Not searched: the standard output and error of the VS Code process, the temporary directory
 (`TMPDIR`), and the compressed parts of the profile (LevelDB storage with snappy compression,

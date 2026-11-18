@@ -34,6 +34,7 @@ describe('extensionTestEnvironment', () => {
         'HOME',
         'LANG',
         'PATH',
+        'SHELL',
         'XDG_CACHE_HOME',
         'XDG_CONFIG_HOME',
         'XDG_DATA_HOME',
@@ -55,6 +56,13 @@ describe('extensionTestEnvironment', () => {
     expect(env['XDG_DATA_HOME']).toBe('/tmp/instance/x/data');
     expect(env['XDG_CACHE_HOME']).toBe('/tmp/instance/x/cache');
     expect(env['XDG_STATE_HOME']).toBe('/tmp/instance/x/state');
+  });
+
+  it('sets the shell to true, so that VS Code never runs a login shell', () => {
+    expect(extensionTestEnvironment({ SHELL: '/bin/bash' }, 'linux', DIRS, {})['SHELL']).toBe(
+      '/usr/bin/true',
+    );
+    expect(extensionTestEnvironment({}, 'win32', DIRS, {})['SHELL']).toBeUndefined();
   });
 
   it('adds the variables of the test', () => {
