@@ -72,6 +72,9 @@ describe('draftFromServer', () => {
       rootPath: '/home/deploy',
       keepAliveSeconds: '300',
       idleDisconnectMinutes: '0',
+      mappings: [{ localPath: '.', deploymentPath: 'www/app.example.com' }],
+      excludedLocalPaths: ['.git', 'node_modules'],
+      excludedRemotePaths: [],
     });
   });
 
@@ -298,6 +301,92 @@ describe('sftpServerFromDraft', () => {
     expect(result.ok ? [] : result.errors.map((error) => error.field)).toEqual([
       'sshConfigHost',
       'rootPath',
+    ]);
+  });
+});
+
+describe('buildConfig with mappings and excluded paths', () => {
+  it('saves the mappings and excluded paths of the form, trimmed', () => {
+    const config = stored();
+    const drafts = draftsFromConfig(config);
+    const edited: ServerDraft[] = [
+      {
+        ...sftpDraft(drafts),
+        mappings: [
+          { localPath: ' src ', deploymentPath: 'www/app/src ' },
+          { localPath: 'public', deploymentPath: '' },
+        ],
+        excludedLocalPaths: ['var/cache'],
+        excludedRemotePaths: [' logs '],
+      },
+      ...drafts.slice(1),
+    ];
+    const result = buildConfig(PROJECT, edited, config.servers, options);
+    if (!result.ok) {
+      throw new Error(JSON.stringify(result.errors));
+    }
+    expect(result.config.servers[0]).toMatchObject({
+      mappings: [
+        { localPath: 'src', deploymentPath: 'www/app/src' },
+        { localPath: 'public', deploymentPath: '' },
+      ],
+      excludedLocalPaths: ['var/cache'],
+      excludedRemotePaths: ['logs'],
+    });
+    expect(validateConfig(result.config, options).ok).toBe(true);
+  });
+
+  it('refuses paths that leave the project or the root path, on the row that has them', () => {
+    const result = buildConfig(
+      PROJECT,
+      [
+        newSftp('s1', {
+          sshConfigHost: 'app',
+          rootPath: '/home/deploy',
+          mappings: [
+            { localPath: '.', deploymentPath: 'www' },
+            { localPath: '../other', deploymentPath: '/etc' },
+          ],
+          excludedLocalPaths: ['', '/home/deploy/.ssh', '.'],
+          excludedRemotePaths: ['a\\b'],
+        }),
+      ],
+      [],
+      options,
+    );
+    expect(result.ok).toBe(false);
+    expect(result.ok ? [] : result.errors).toEqual([
+      {
+        serverId: 's1',
+        field: 'mappings.1.localPath',
+        message: 'Mapping 2, local path: must not contain ".."',
+      },
+      {
+        serverId: 's1',
+        field: 'mappings.1.deploymentPath',
+        message: 'Mapping 2, deployment path: must be a relative path',
+      },
+      {
+        serverId: 's1',
+        field: 'excludedLocalPaths.0',
+        message: 'Excluded local path 1: must not be empty',
+      },
+      {
+        serverId: 's1',
+        field: 'excludedLocalPaths.1',
+        message: 'Excluded local path 2: must be a relative path',
+      },
+      {
+        serverId: 's1',
+        field: 'excludedLocalPaths.2',
+        message:
+          'Excluded local path 3: must name a file or folder inside the project, not the project folder',
+      },
+      {
+        serverId: 's1',
+        field: 'excludedRemotePaths.0',
+        message: 'Excluded remote path 1: must use forward slashes',
+      },
     ]);
   });
 });

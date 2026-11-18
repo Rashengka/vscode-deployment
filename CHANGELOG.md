@@ -46,8 +46,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   idle disconnect, Test Connection) and the folder and web URL of in-place servers. The panel
   runs with a strict Content Security Policy, shows every value as plain text, and its messages
   are validated by the extension; it never receives a passphrase or key content. Saving uses the
-  validation of `config.json`, keeps mappings and excluded paths, and refuses to overwrite a
-  configuration that changed on disk since it was loaded.
+  validation of `config.json` and refuses to overwrite a configuration that changed on disk
+  since it was loaded.
+- Settings panel tabs Mappings and Excluded Paths: mappings with a folder picker inside the
+  project and a remote folder picker, local and remote excluded paths, and Verify Mapping, which
+  looks up 20 random project files of each mapping on the server (from `git ls-files`, otherwise
+  the workspace files) and reports how many were found and which are missing. The root path
+  gets `Browse…` and `Autodetect` (the home directory of the user on the server). The remote
+  folder picker lists folders lazily, never above its base folder, shows symbolic links without
+  opening them and lists at most 1000 entries per folder. An excluded path must name something
+  below the project folder or the root path, not the folder itself.
 - `SECURITY.md`: what the extension protects, what stays in memory and its limits, and what the
   secret leak test checks.
 - Secret leak test: a passphrase typed into the real password box of VS Code (with trace logging)

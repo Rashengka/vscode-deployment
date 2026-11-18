@@ -4,12 +4,24 @@
  *
  * Every field is what the form shows, as text where the user types it (a port of `"22x"` is a
  * draft, not a configuration). Turning a draft into a configuration, and validating it, happens
- * in the extension host only (`src/settings/save.ts`). Fields the panel does not edit (mappings,
- * excluded paths, the SSH agent setting) are not part of the draft; saving takes them over from
- * the stored server with the same id, so they survive an edit.
+ * in the extension host only (`src/settings/save.ts`). The SSH agent setting is not part of the
+ * draft: the panel does not edit it, and saving takes it over from the stored server with the
+ * same id, so it survives an edit.
  */
 
 export type ConnectionMode = 'alias' | 'manual';
+
+export interface MappingDraft {
+  /** Relative to the project folder. */
+  readonly localPath: string;
+  /** Relative to the server's root path. */
+  readonly deploymentPath: string;
+}
+
+export const MAPPING_DRAFT_KEYS = ['localPath', 'deploymentPath'] as const;
+
+/** The lists of an SFTP draft that the Mappings and Excluded Paths tabs edit. */
+export type ListName = 'mappings' | 'excludedLocalPaths' | 'excludedRemotePaths';
 
 export interface SftpDraft {
   readonly id: string;
@@ -29,6 +41,11 @@ export interface SftpDraft {
   readonly rootPath: string;
   readonly keepAliveSeconds: string;
   readonly idleDisconnectMinutes: string;
+  readonly mappings: readonly MappingDraft[];
+  /** Relative to the project folder. */
+  readonly excludedLocalPaths: readonly string[];
+  /** Relative to the root path. */
+  readonly excludedRemotePaths: readonly string[];
 }
 
 export interface InplaceDraft {
@@ -59,11 +76,17 @@ export const SFTP_DRAFT_KEYS = [
   'rootPath',
   'keepAliveSeconds',
   'idleDisconnectMinutes',
+  'mappings',
+  'excludedLocalPaths',
+  'excludedRemotePaths',
 ] as const;
 
 export const INPLACE_DRAFT_KEYS = ['id', 'type', 'name', 'default', 'folder', 'webUrl'] as const;
 
-export type SftpTextField = Exclude<(typeof SFTP_DRAFT_KEYS)[number], 'type' | 'default' | 'mode'>;
+export type SftpTextField = Exclude<
+  (typeof SFTP_DRAFT_KEYS)[number],
+  'type' | 'default' | 'mode' | ListName
+>;
 export type InplaceTextField = Exclude<(typeof INPLACE_DRAFT_KEYS)[number], 'type' | 'default'>;
 
 export const DEFAULT_KEEPALIVE_SECONDS = 300;
@@ -114,7 +137,15 @@ export function newServerDraft(
     rootPath: '',
     keepAliveSeconds: String(DEFAULT_KEEPALIVE_SECONDS),
     idleDisconnectMinutes: String(DEFAULT_IDLE_MINUTES),
+    mappings: [],
+    excludedLocalPaths: [],
+    excludedRemotePaths: [],
   };
+}
+
+/** A new row of the Mappings tab: the whole project, to the root path. */
+export function newMappingDraft(): MappingDraft {
+  return { localPath: '.', deploymentPath: '' };
 }
 
 /** Makes `id` the only default server, or clears the default when `value` is false. */
@@ -127,6 +158,24 @@ export function setDefault(
     const isDefault = server.id === id ? value : value ? false : server.default;
     return server.default === isDefault ? server : { ...server, default: isDefault };
   });
+}
+
+function sameValue(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    const left = a as readonly unknown[];
+    const right = b as readonly unknown[];
+    return left.length === right.length && left.every((item, i) => sameValue(item, right[i]));
+  }
+  if (typeof a === 'object' && a !== null && typeof b === 'object' && b !== null) {
+    const left = a as Record<string, unknown>;
+    const right = b as Record<string, unknown>;
+    const keys = Object.keys(left);
+    return (
+      keys.length === Object.keys(right).length &&
+      keys.every((key) => Object.hasOwn(right, key) && sameValue(left[key], right[key]))
+    );
+  }
+  return a === b;
 }
 
 /** Whether two lists of drafts are the same, field by field and in order. */
@@ -142,6 +191,6 @@ export function sameDrafts(a: readonly ServerDraft[], b: readonly ServerDraft[])
     const keys: readonly string[] = server.type === 'sftp' ? SFTP_DRAFT_KEYS : INPLACE_DRAFT_KEYS;
     const left = server as unknown as Record<string, unknown>;
     const right = other as unknown as Record<string, unknown>;
-    return keys.every((key) => left[key] === right[key]);
+    return keys.every((key) => sameValue(left[key], right[key]));
   });
 }

@@ -13,6 +13,17 @@ import {
   ALIAS_PREFIX,
   INITIAL_STATE,
   MANUAL_VALUE,
+  addListItem,
+  closePicker,
+  confirmPicker,
+  openPicker,
+  pickerValue,
+  removeListItem,
+  selectPickerEntry,
+  selectTab,
+  setPickerFilter,
+  togglePickerFolder,
+  updateListItem,
   addServer,
   applyHostMessage,
   isDirty,
@@ -317,5 +328,380 @@ describe('settings state', () => {
     expect(failed.errors).toEqual([{ serverId: null, field: null, message: 'Too large.' }]);
     const saved = applyHostMessage(saving, { type: 'saved' });
     expect(saved).toMatchObject({ saving: false, notice: 'Saved.', saved: saving.draft });
+  });
+});
+
+const SESSION = 'd'.repeat(32);
+
+function withMappings(): UiState {
+  return selectTab(
+    stateWith([
+      sftp({
+        rootPath: '/home/deploy',
+        mappings: [{ localPath: '.', deploymentPath: 'www/app' }],
+        excludedLocalPaths: ['vendor'],
+        excludedRemotePaths: [],
+      }),
+    ]),
+    'mappings',
+  );
+}
+
+function listed(
+  state: UiState,
+  path: string,
+  entries: Extract<HostMessage, { type: 'remoteListing' }>['entries'],
+): UiState {
+  return applyHostMessage(state, {
+    type: 'remoteListing',
+    session: SESSION,
+    base: '/home/deploy',
+    path,
+    entries,
+    truncated: false,
+  });
+}
+
+describe('Mappings and Excluded Paths tabs', () => {
+  it('shows the mappings with the root path in the hint, and the tab buttons', () => {
+    const tree = renderApp(withMappings());
+    expect(texts(tree)).toEqual(
+      expect.arrayContaining([
+        'Connection',
+        'Mappings',
+        'Excluded Paths',
+        'Local path is relative to the project. Deployment path is relative to the server root path (/home/deploy).',
+        'Add New Mapping',
+        'Verify Mapping',
+      ]),
+    );
+    const inputs = elements(tree).filter(
+      (element) => element.attrs['data-list'] === 'mappings' && element.tag === 'input',
+    );
+    expect(inputs.map((input) => [input.attrs['data-key'], input.attrs['value']])).toEqual([
+      ['localPath', '.'],
+      ['deploymentPath', 'www/app'],
+    ]);
+  });
+
+  it('adds, edits and removes rows', () => {
+    let state = addListItem(withMappings(), 's1', 'mappings');
+    state = updateListItem(state, 's1', 'mappings', 1, 'deploymentPath', 'www/static');
+    state = addListItem(state, 's1', 'excludedRemotePaths');
+    state = updateListItem(state, 's1', 'excludedRemotePaths', 0, null, 'cache');
+    let server = state.draft[0] as SftpDraft;
+    expect(server.mappings).toEqual([
+      { localPath: '.', deploymentPath: 'www/app' },
+      { localPath: '.', deploymentPath: 'www/static' },
+    ]);
+    expect(server.excludedRemotePaths).toEqual(['cache']);
+    expect(isDirty(state)).toBe(true);
+
+    state = removeListItem(state, 's1', 'mappings', 0);
+    server = state.draft[0] as SftpDraft;
+    expect(server.mappings).toEqual([{ localPath: '.', deploymentPath: 'www/static' }]);
+  });
+
+  it('ignores edits of rows and columns that do not exist', () => {
+    const state = withMappings();
+    expect(updateListItem(state, 's1', 'mappings', 5, 'localPath', 'x').draft).toEqual(state.draft);
+    expect(updateListItem(state, 's1', 'mappings', 0, 'id', 'x').draft).toEqual(state.draft);
+    expect(updateListItem(state, 's1', 'excludedLocalPaths', 0, 'localPath', 'x').draft).toEqual(
+      state.draft,
+    );
+    expect(updateField(state, 's1', 'mappings', 'x').draft).toEqual(state.draft);
+  });
+
+  it('shows an error under the row it belongs to and marks the tab', () => {
+    const state = applyHostMessage(withMappings(), {
+      type: 'errors',
+      errors: [{ serverId: 's1', field: 'mappings.0.localPath', message: PAYLOAD }],
+    });
+    const tree = renderApp(state);
+    const error = elements(tree).find(
+      (element) => element.attrs['id'] === 'error-mappings.0.localPath',
+    );
+    expect(error && texts(error)).toEqual([PAYLOAD]);
+    const tab = elements(tree).find((element) => element.attrs['data-tab'] === 'mappings');
+    expect(tab && texts(tab)).toEqual(['Mappings', ' !']);
+  });
+
+  it('applies a path picked in the project to its row', () => {
+    const state = applyHostMessage(withMappings(), {
+      type: 'pickedItem',
+      id: 's1',
+      list: 'mappings',
+      index: 0,
+      path: 'public',
+    });
+    expect((state.draft[0] as SftpDraft).mappings[0]?.localPath).toBe('public');
+  });
+
+  it('shows the result of Verify Mapping with the missing files as text', () => {
+    const state = applyHostMessage(withMappings(), {
+      type: 'verifyResult',
+      id: 's1',
+      source: 'git',
+      truncated: false,
+      checks: [
+        {
+          localPath: '.',
+          deploymentPath: 'www/app',
+          checked: 20,
+          found: 18,
+          verdict: 'correct',
+          text: '18/20 files found – mapping looks correct',
+          missing: [PAYLOAD, 'src/b.php'],
+          unchecked: [],
+        },
+      ],
+    });
+    const tree = renderApp(state);
+    expect(texts(tree)).toEqual(
+      expect.arrayContaining(['18/20 files found – mapping looks correct', PAYLOAD, 'src/b.php']),
+    );
+    expect(elements(tree).map((element) => element.tag)).not.toContain('img');
+  });
+
+  it('shows the excluded paths of both kinds', () => {
+    const tree = renderApp(selectTab(withMappings(), 'excluded'));
+    expect(texts(tree)).toEqual(
+      expect.arrayContaining(['Local excluded paths', 'Remote excluded paths', 'Add Remote Path']),
+    );
+    const local = elements(tree).find(
+      (element) => element.attrs['data-list'] === 'excludedLocalPaths' && element.tag === 'input',
+    );
+    expect(local?.attrs['value']).toBe('vendor');
+  });
+});
+
+describe('remote folder picker', () => {
+  const entries = [
+    { name: 'www', label: 'www', kind: 'directory' as const, usable: true },
+    { name: 'current', label: 'current', kind: 'symlink' as const, usable: true },
+    { name: PAYLOAD, label: PAYLOAD, kind: 'directory' as const, usable: true },
+    { name: 'rtl\u202e', label: 'rtl\\u202e', kind: 'directory' as const, usable: false },
+    { name: 'notes.txt', label: 'notes.txt', kind: 'file' as const, usable: true },
+  ];
+
+  function opened(purpose: 'mapping' | 'rootPath' | 'excludedRemote' = 'mapping'): UiState {
+    return listed(openPicker(withMappings(), 's1', purpose, 0), '', entries);
+  }
+
+  it('renders a server name like <img onerror> as text and never creates the element', () => {
+    const tree = renderApp(opened());
+    expect(texts(tree)).toContain(`${PAYLOAD}/`);
+    expect(elements(tree).map((element) => element.tag)).not.toContain('img');
+    const doc = new FakeDocument();
+    createNode(doc, tree);
+    expect(doc.created).not.toContain('img');
+    expect(doc.created.every((tag) => ALLOWED_TAGS.has(tag))).toBe(true);
+  });
+
+  it('opens folders but not symbolic links, files or unusable names', () => {
+    const tree = renderApp(opened());
+    const toggles = elements(tree)
+      .filter((element) => element.attrs['data-action'] === 'pickerToggle')
+      .map((element) => element.attrs['data-path']);
+    expect(toggles).toEqual(['www', PAYLOAD]);
+    const choosable = elements(tree)
+      .filter(
+        (element) =>
+          element.attrs['data-action'] === 'pickerSelect' && element.attrs['disabled'] !== true,
+      )
+      .map((element) => element.attrs['data-path']);
+    expect(choosable).toEqual(['', 'www', PAYLOAD]);
+    expect(texts(tree)).toContain('current (symbolic link)');
+    expect(texts(tree)).toContain('rtl\\u202e/ (unusable name)');
+  });
+
+  it('lets an exclusion be a file or a link, and not the base folder', () => {
+    const tree = renderApp(opened('excludedRemote'));
+    const choosable = elements(tree)
+      .filter(
+        (element) =>
+          element.attrs['data-action'] === 'pickerSelect' && element.attrs['disabled'] !== true,
+      )
+      .map((element) => element.attrs['data-path']);
+    expect(choosable).toEqual(['www', 'current', PAYLOAD, 'notes.txt']);
+  });
+
+  it('asks for a folder once when it is opened, and shows its entries', () => {
+    const first = togglePickerFolder(opened(), 'www');
+    expect(first.list).toBe(true);
+    expect(texts(renderApp(first.state))).toContain('Loading…');
+    const loaded = listed(first.state, 'www', [
+      { name: 'html', label: 'html', kind: 'directory', usable: true },
+    ]);
+    expect(texts(renderApp(loaded))).toContain('html/');
+    const closed = togglePickerFolder(loaded, 'www');
+    expect(closed.list).toBe(false);
+    expect(togglePickerFolder(closed.state, 'www').list).toBe(false);
+  });
+
+  it('filters the entries by name', () => {
+    const tree = renderApp(setPickerFilter(opened(), 'WW'));
+    expect(texts(tree)).toContain('www/');
+    expect(texts(tree)).not.toContain('notes.txt');
+  });
+
+  it('ignores a listing of another session', () => {
+    const state = listed(opened(), 'www', []);
+    const other = applyHostMessage(state, {
+      type: 'remoteListing',
+      session: 'e'.repeat(32),
+      base: '/',
+      path: '',
+      entries: [],
+      truncated: false,
+    });
+    expect(other).toEqual(state);
+  });
+
+  it('shows a connection failure and only allows Cancel', () => {
+    const state = applyHostMessage(openPicker(withMappings(), 's1', 'mapping', 0), {
+      type: 'remoteError',
+      session: null,
+      path: '',
+      message: PAYLOAD,
+    });
+    const tree = renderApp(state);
+    expect(texts(tree)).toContain(PAYLOAD);
+    const ok = elements(tree).find((element) => element.attrs['data-action'] === 'pickerOk');
+    expect(ok?.attrs['disabled']).toBe(true);
+  });
+
+  it('puts the chosen folder into the mapping, relative to the root path', () => {
+    let state = selectPickerEntry(opened(), 'www/html', 'directory');
+    expect(state.picker && pickerValue(state.picker)).toBe('www/html');
+    state = confirmPicker(state);
+    expect(state.picker).toBeNull();
+    expect((state.draft[0] as SftpDraft).mappings[0]?.deploymentPath).toBe('www/html');
+
+    const base = confirmPicker(selectPickerEntry(opened(), '', 'directory'));
+    expect((base.draft[0] as SftpDraft).mappings[0]?.deploymentPath).toBe('.');
+  });
+
+  it('gives an absolute root path from the server root', () => {
+    const state = confirmPicker(selectPickerEntry(opened('rootPath'), 'var/www', 'directory'));
+    expect((state.draft[0] as SftpDraft).rootPath).toBe('/var/www');
+    const root = confirmPicker(selectPickerEntry(opened('rootPath'), '', 'directory'));
+    expect((root.draft[0] as SftpDraft).rootPath).toBe('/');
+  });
+
+  it('does not choose a file for a mapping, and Cancel changes nothing', () => {
+    const state = selectPickerEntry(opened(), 'notes.txt', 'file');
+    expect(state.picker?.selected).toBeNull();
+    expect(closePicker(state).draft).toEqual(withMappings().draft);
+  });
+});
+
+describe('states that must not get stuck or look fine', () => {
+  const unchecked = {
+    localPath: '.',
+    deploymentPath: 'www/app',
+    checked: 0,
+    found: 0,
+    verdict: 'unchecked' as const,
+    text: 'None of the 1 files could be checked',
+    missing: [],
+    unchecked: [{ path: PAYLOAD, reason: 'Permission denied' }],
+  };
+
+  it('shows the files that could not be checked and that the file list was cut off', () => {
+    const state = applyHostMessage(withMappings(), {
+      type: 'verifyResult',
+      id: 's1',
+      source: 'workspace',
+      truncated: true,
+      checks: [unchecked],
+    });
+    const tree = renderApp(state);
+    expect(texts(tree)).toEqual(
+      expect.arrayContaining([
+        'Could not be checked (1)',
+        `${PAYLOAD}: Permission denied`,
+        'The project has more files than were listed; the sample comes from the first ones.',
+      ]),
+    );
+    expect(elements(tree).map((element) => element.tag)).not.toContain('img');
+  });
+
+  it('forgets running operations when the state is sent again', () => {
+    let state = applyHostMessage(withMappings(), {
+      type: 'taskStatus',
+      id: 's1',
+      task: 'verify',
+      state: 'running',
+      text: 'Looking up…',
+    });
+    state = applyHostMessage(state, {
+      type: 'testStatus',
+      id: 's1',
+      state: 'running',
+      text: 'Connecting…',
+    });
+    const verify = (): ElementNode | undefined =>
+      elements(renderApp(state)).find((element) => element.attrs['data-action'] === 'verify');
+    expect(verify()?.attrs['disabled']).toBe(true);
+    state = applyHostMessage(state, {
+      type: 'state',
+      folderName: 'app',
+      saved: state.saved,
+      draft: state.draft,
+      aliases: [],
+      aliasProblem: null,
+      problem: null,
+      changedOnDisk: false,
+      notice: null,
+      errors: [],
+    });
+    expect(verify()?.attrs['disabled']).toBe(false);
+  });
+
+  it('drops the results and the picker of servers that are no longer in the form', () => {
+    let state = applyHostMessage(withMappings(), {
+      type: 'verifyResult',
+      id: 's1',
+      source: 'git',
+      truncated: false,
+      checks: [unchecked],
+    });
+    state = openPicker(state, 's1', 'mapping', 0);
+    state = applyHostMessage(state, {
+      type: 'state',
+      folderName: 'app',
+      saved: [],
+      draft: [],
+      aliases: [],
+      aliasProblem: null,
+      problem: null,
+      changedOnDisk: false,
+      notice: null,
+      errors: [],
+    });
+    expect(state.verify.size).toBe(0);
+    expect(state.picker).toBeNull();
+  });
+
+  it('stops the tree when the connection of the picker is lost', () => {
+    const open = listed(openPicker(withMappings(), 's1', 'mapping', 0), '', [
+      { name: 'www', label: 'www', kind: 'directory', usable: true },
+    ]);
+    const lost = applyHostMessage(selectPickerEntry(open, 'www', 'directory'), {
+      type: 'remoteError',
+      session: null,
+      path: 'www',
+      message: 'The connection of the folder picker was closed.',
+    });
+    const tree = renderApp(lost);
+    expect(texts(tree)).toContain('The connection of the folder picker was closed.');
+    expect(elements(tree).some((element) => element.attrs['data-action'] === 'pickerToggle')).toBe(
+      false,
+    );
+    const ok = elements(tree).find((element) => element.attrs['data-action'] === 'pickerOk');
+    expect(ok?.attrs['disabled']).toBe(true);
+    expect(lost.picker && pickerValue(lost.picker)).toBeNull();
+    expect(togglePickerFolder(lost, 'www').list).toBe(false);
   });
 });

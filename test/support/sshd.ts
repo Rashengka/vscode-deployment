@@ -61,6 +61,11 @@ export interface SshdContainer {
   generateKey(options: GenerateKeyOptions): Promise<GeneratedKey>;
   /** Hashes a known_hosts text with `ssh-keygen -H` inside the container. */
   hashKnownHosts(text: string): Promise<string>;
+  /**
+   * Runs a shell script as root inside the container (to prepare files on the server);
+   * `args` are passed as `$1`, `$2`, … and never become part of the script.
+   */
+  exec(script: string, ...args: readonly string[]): Promise<string>;
   stop(): Promise<void>;
 }
 
@@ -248,6 +253,9 @@ export async function startSshd(): Promise<SshdContainer> {
           'sh',
           text,
         ]);
+      },
+      exec(script, ...args) {
+        return docker(['exec', name, 'sh', '-c', script, 'sh', ...args]);
       },
       stop,
     };

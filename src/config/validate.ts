@@ -283,6 +283,30 @@ function validateMapping(c: Collector, where: string, value: unknown): Mapping |
   return { localPath, deploymentPath };
 }
 
+/** A relative path of something below the base: not empty and not the base itself. */
+function excludedPath(base: 'project' | 'root') {
+  return (c: Collector, where: string, value: unknown): string | undefined => {
+    const text = relativeSubpath(c, where, value);
+    if (text === undefined) {
+      return undefined;
+    }
+    if (text.trim() === '') {
+      c.add(where, 'must not be empty');
+      return undefined;
+    }
+    if (segments(text).every((segment) => segment === '' || segment === '.')) {
+      c.add(
+        where,
+        base === 'project'
+          ? 'must name a file or folder inside the project, not the project folder'
+          : 'must name a path below the root path, not the root path',
+      );
+      return undefined;
+    }
+    return text;
+  };
+}
+
 function validateSftpServer(c: Collector, where: string, raw: JsonObject): SftpServer | null {
   c.onlyKeys(where, raw, SFTP_SERVER_KEYS);
   const connection = validateConnection(c, `${where}.connection`, raw['connection']);
@@ -307,13 +331,13 @@ function validateSftpServer(c: Collector, where: string, raw: JsonObject): SftpS
     c,
     `${where}.excludedLocalPaths`,
     raw['excludedLocalPaths'],
-    relativeSubpath,
+    excludedPath('project'),
   );
   const excludedRemotePaths = stringList(
     c,
     `${where}.excludedRemotePaths`,
     raw['excludedRemotePaths'],
-    relativeSubpath,
+    excludedPath('root'),
   );
   const id = c.string(`${where}.id`, raw['id']);
   const name = c.string(`${where}.name`, raw['name']);

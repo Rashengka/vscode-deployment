@@ -45,7 +45,23 @@ private keys. It is designed so that:
   against a fixed schema with size limits and drops anything else. The panel never receives a
   passphrase or key content, only the path of an identity file; Test Connection asks for the
   passphrase in the extension, in the same password box as the command, and tests unsaved
-  settings on a separate connection that is closed right afterwards.
+  settings on a separate connection that is closed right afterwards. Autodetect, Verify Mapping
+  and the remote folder picker work the same way (the picker's connection is closed when the
+  picker is closed). The picker lists only folders below its base folder that it has listed
+  itself; symbolic links are shown but never opened, and names that could not be part of a
+  configured path (control, format or bidirectional characters, slashes) cannot be chosen.
+  The picker tells a symbolic link from a folder by the attributes the server reports for each
+  entry. A dishonest server can report a link as a folder, and a folder can be replaced by a
+  link between listing and use, so this is no guarantee against a server that is not honest:
+  it keeps an honest server's links from being followed by mistake.
+
+- **Verify Mapping runs git.** Listing the project files can run code that a repository
+  configures, so git is started by its absolute path (never from a folder inside the project),
+  with `core.fsmonitor` switched off, without a shell, and only in a trusted workspace;
+  otherwise the workspace files are used. Paths listed by git that could leave the project or
+  the root path (`..`, absolute paths, backslashes, invisible characters) are dropped, and a
+  path on the server is only looked up when it is below the root path. It only looks files up
+  on the server (`stat`).
 
 ## What is kept in memory, and for how long
 

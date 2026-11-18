@@ -153,6 +153,23 @@ describe('config.schema.json', () => {
       expect(relative.test(deploymentPath)).toBe(valid);
     });
 
+    it.each(['', '.', './', './/.', 'www', '.git', '...', '..', 'www/../x', '/www', 'a\\b'])(
+      'excluded path %j',
+      (excluded) => {
+        const pattern = new RegExp(definition('excludedPath').pattern ?? '', 'u');
+        const server = {
+          ...json(sftpServer()),
+          excludedLocalPaths: [excluded],
+          excludedRemotePaths: [excluded],
+        };
+        const valid = validateConfig(
+          { version: 1, projectPath: PROJECT, servers: [server] },
+          { platform: 'linux' },
+        ).ok;
+        expect(pattern.test(excluded)).toBe(valid);
+      },
+    );
+
     it.each(['/home/deploy', '/', '/a..b', 'home', '/var/../x', '/home\\x', '/x\u0007'])(
       'rootPath %j',
       (rootPath) => {

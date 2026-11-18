@@ -6,7 +6,9 @@
  * The webview is locked down: scripts only with the nonce of its document, no forms, no command
  * links, and local resources only from `dist/webview`. It never receives a secret.
  */
-import { existsSync } from 'node:fs';
+import { randomInt } from 'node:crypto';
+import { accessSync, constants, existsSync, realpathSync, statSync } from 'node:fs';
+import { realpath } from 'node:fs/promises';
 import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
@@ -22,14 +24,21 @@ import {
 } from '../config/store';
 import { sanitizeForDisplay } from '../display/sanitize';
 import type { DeploymentLog } from '../log/deploymentLog';
+import { projectRelativePath } from '../mapping/paths';
+import {
+  collectProjectFiles,
+  findExecutable,
+  gitLsFiles,
+  type ProjectFiles,
+} from '../mapping/projectFiles';
 import {
   SettingsController,
   type SettingsHost,
   type SettingsSnapshot,
 } from '../settings/controller';
 import { createNonce, settingsHtml } from '../settings/html';
-import type { HostMessage, PathField } from '../settings/protocol';
-import { testUnsavedServer } from '../settings/testUnsavedServer';
+import type { HostMessage, LocalList, PathField } from '../settings/protocol';
+import { UnsavedServerSession, testUnsavedServer } from '../settings/testUnsavedServer';
 import type { ConnectionManager } from '../ssh/connectionManager';
 import { listSshHostAliases } from '../ssh/sshConfig';
 import { nodeFileAccess } from '../ssh/sshConfigFiles';
@@ -293,6 +302,15 @@ class SettingsPanel implements SettingsPanelHandle {
         options.connections.disconnect(connectionKey(this.folderKey, serverId));
       },
       onSaved: options.onSaved,
+      pickProjectPath: (list, current) => pickProjectPath(folder, list, current),
+      openSession: (server) =>
+        new UnsavedServerSession(options.connections, {
+          key: connectionKey(this.folderKey, server.id),
+          server,
+          configFile: this.configDir === null ? undefined : join(this.configDir, CONFIG_FILE_NAME),
+        }),
+      listProjectFiles: () => listProjectFiles(folder, options.log),
+      random: (max) => randomInt(max),
     };
   }
 
@@ -328,6 +346,104 @@ async function pickPath(field: PathField, current: string): Promise<string | und
     ...(start === undefined ? {} : { defaultUri: vscode.Uri.file(start) }),
   });
   return picked?.[0]?.fsPath;
+}
+
+/**
+ * A folder (mappings) or a file or folder (exclusions) in the project; the result has its
+ * symbolic links resolved, so that the caller can check that it is really inside the project.
+ */
+async function pickProjectPath(
+  folder: vscode.WorkspaceFolder,
+  list: LocalList,
+  current: string | null,
+): Promise<string | undefined> {
+  const start =
+    current === null ? folder.uri : vscode.Uri.joinPath(folder.uri, ...current.split('/'));
+  const picked = await vscode.window.showOpenDialog({
+    canSelectFiles: list === 'excludedLocalPaths',
+    canSelectFolders: true,
+    canSelectMany: false,
+    title:
+      list === 'mappings'
+        ? 'Select the local folder of the mapping'
+        : 'Select the file or folder to exclude',
+    openLabel: 'Select',
+    defaultUri: start,
+  });
+  const path = picked?.[0]?.fsPath;
+  if (path === undefined) {
+    return undefined;
+  }
+  try {
+    return await realpath(path);
+  } catch (error) {
+    if (error instanceof Error && typeof (error as NodeJS.ErrnoException).code === 'string') {
+      const code = sanitizeForDisplay(String((error as NodeJS.ErrnoException).code), {
+        maxLength: 40,
+      });
+      void vscode.window.showErrorMessage(`The selected path could not be resolved (${code}).`);
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function isExecutableFile(file: string): boolean {
+  try {
+    accessSync(file, constants.X_OK);
+    return statSync(file).isFile();
+  } catch (error) {
+    if (error instanceof Error && typeof (error as NodeJS.ErrnoException).code === 'string') {
+      // Missing, not executable or not readable: not a candidate.
+      return false;
+    }
+    throw error;
+  }
+}
+
+/** The canonical path, or `undefined` when it does not exist or cannot be read. */
+function canonical(path: string): string | undefined {
+  try {
+    return realpathSync.native(path);
+  } catch (error) {
+    if (error instanceof Error && typeof (error as NodeJS.ErrnoException).code === 'string') {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/** The project files for Verify Mapping (see `collectProjectFiles`). */
+function listProjectFiles(
+  folder: vscode.WorkspaceFolder,
+  log: DeploymentLog,
+): Promise<ProjectFiles> {
+  const root = folder.uri.fsPath;
+  const { platform } = process;
+  return collectProjectFiles({
+    trusted: vscode.workspace.isTrusted,
+    findGit: () =>
+      findExecutable('git', process.env['PATH'], {
+        platform,
+        projectRoot: root,
+        realpath: canonical,
+        isExecutableFile,
+      }),
+    gitLsFiles: (git) => gitLsFiles(git, root, process.env),
+    findFiles: async (include, exclude, maxResults) => {
+      const uris = await vscode.workspace.findFiles(
+        new vscode.RelativePattern(folder, include),
+        exclude,
+        maxResults,
+      );
+      return uris
+        .map((uri) => projectRelativePath(root, uri.fsPath, platform))
+        .filter((path): path is string => path !== null && path !== '.');
+    },
+    log: (message) => {
+      log.info(undefined, 'Verify Mapping', message);
+    },
+  });
 }
 
 /** All settings panels of the window. */

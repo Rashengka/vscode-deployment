@@ -1,9 +1,16 @@
 /** {@link DeploymentTarget} over an SFTP session of an SSH connection. */
 import type { SFTPWrapper, Stats } from 'ssh2';
 import { ConnectionError } from '../ssh/connectionError';
-import type { DeploymentTarget, RemoteEntryType, RemoteStat } from './deploymentTarget';
+import type {
+  DeploymentTarget,
+  RemoteEntry,
+  RemoteEntryType,
+  RemoteListing,
+  RemoteStat,
+} from './deploymentTarget';
 
-/** SFTP status code for a missing file (draft-ietf-secsh-filexfer, SSH_FX_NO_SUCH_FILE). */
+/** SFTP status codes (draft-ietf-secsh-filexfer): SSH_FX_EOF and SSH_FX_NO_SUCH_FILE. */
+const END_OF_FILE = 1;
 const NO_SUCH_FILE = 2;
 
 /**
@@ -18,7 +25,13 @@ function channelError(error: Error, description: string): Error {
   return new ConnectionError(`The SFTP session to ${description} ended: ${error.message}`);
 }
 
-function entryType(stats: Stats): RemoteEntryType {
+function statusCode(error: Error): unknown {
+  return (error as Error & { code?: unknown }).code;
+}
+
+function entryType(
+  stats: Pick<Stats, 'isFile' | 'isDirectory' | 'isSymbolicLink'>,
+): RemoteEntryType {
   if (stats.isFile()) {
     return 'file';
   }
@@ -68,6 +81,62 @@ export class SftpTarget implements DeploymentTarget {
         } else {
           reject(channelError(error, this.description));
         }
+      });
+    });
+  }
+
+  /**
+   * Reads the directory batch by batch through its handle, so that a directory with a huge
+   * number of entries is not read beyond `maxEntries` (the server decides how large a batch
+   * is), and a server that keeps sending empty batches is not read beyond a bounded number of
+   * them. The answer never waits for the handle to close: on a channel that is gone, `close`
+   * never calls back.
+   */
+  readdir(path: string, maxEntries: number): Promise<RemoteListing> {
+    const maxBatches = maxEntries + 2;
+    return new Promise((resolve, reject) => {
+      this.sftp.opendir(path, (openError, handle) => {
+        if (openError instanceof Error) {
+          reject(channelError(openError, this.description));
+          return;
+        }
+        const entries: RemoteEntry[] = [];
+        let batches = 0;
+        const finish = (outcome: () => void): void => {
+          outcome();
+          // Closing a handle after reading cannot change the listing; its answer is not awaited.
+          this.sftp.close(handle, () => undefined);
+        };
+        const next = (): void => {
+          this.sftp.readdir(handle, (readError, list) => {
+            if (readError instanceof Error) {
+              if (statusCode(readError) === END_OF_FILE) {
+                finish(() => {
+                  resolve({ entries, truncated: false });
+                });
+              } else {
+                finish(() => {
+                  reject(channelError(readError, this.description));
+                });
+              }
+              return;
+            }
+            batches += 1;
+            for (const item of list) {
+              if (item.filename !== '.' && item.filename !== '..') {
+                entries.push({ name: item.filename, type: entryType(item.attrs) });
+              }
+            }
+            if (entries.length > maxEntries || batches >= maxBatches) {
+              finish(() => {
+                resolve({ entries: entries.slice(0, maxEntries), truncated: true });
+              });
+            } else {
+              next();
+            }
+          });
+        };
+        next();
       });
     });
   }

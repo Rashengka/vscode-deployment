@@ -49,6 +49,11 @@
       "type": "string",
       "pattern": "^(?![A-Za-z]:|/)(?!(?:.*/)?\\.\\.(?:/|$))[^\\\\\\u0000-\\u001f\\u007f-\\u009f]*$"
     },
+    "excludedPath": {
+      "description": "Relative path with forward slashes of a file or folder below the base folder; not the base folder itself (\".\" or empty). \"..\" is not allowed.",
+      "type": "string",
+      "pattern": "^(?!\\s*$)(?!(?:\\.?/)*\\.?$)(?![A-Za-z]:|/)(?!(?:.*/)?\\.\\.(?:/|$))[^\\\\\\u0000-\\u001f\\u007f-\\u009f]*$"
+    },
     "sftpServer": {
       "type": "object",
       "additionalProperties": false,
@@ -171,13 +176,13 @@
         "excludedLocalPaths": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/relativePath"
+            "$ref": "#/definitions/excludedPath"
           }
         },
         "excludedRemotePaths": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/relativePath"
+            "$ref": "#/definitions/excludedPath"
           }
         }
       }

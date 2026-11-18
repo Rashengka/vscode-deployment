@@ -7,6 +7,8 @@ import { newServerDraft, type ServerDraft, type SftpDraft } from '../../../src/s
 import type { HostMessage } from '../../../src/settings/protocol';
 import { draftsFromConfig } from '../../../src/settings/save';
 import { SshConfigError } from '../../../src/ssh/sshConfig';
+import { ConnectionError } from '../../../src/ssh/connectionManager';
+import type { DeploymentTarget, RemoteListing } from '../../../src/transport/deploymentTarget';
 import type { TestConnectionResult } from '../../../src/ui/testConnectionFlow';
 import { PROJECT, inplaceServer, sftpServer } from '../config/fixtures';
 
@@ -33,6 +35,20 @@ interface Fake {
   disk: LoadResult;
   saveError: Error | undefined;
   savedCount: number;
+  /** What the fake server answers. */
+  target: Partial<DeploymentTarget>;
+  /** Servers sessions were opened for, and how many of them were closed. */
+  sessions: SftpServer[];
+  closedSessions: number;
+  operations: string[];
+  projectFiles: readonly string[];
+  projectTruncated: boolean;
+  projectFilesError: Error | undefined;
+  pickedProjectPath: string | undefined;
+  /** Resolves the open project path dialog, when one waits (see `holdPicker`). */
+  pickCalls: number;
+  holdPicker: boolean;
+  releasePicker: () => void;
   last<T extends HostMessage['type']>(type: T): Extract<HostMessage, { type: T }>;
 }
 
@@ -51,6 +67,17 @@ function fake(initial: LoadResult, options: { aliases?: () => Promise<string[]> 
     disk: initial,
     saveError: undefined,
     savedCount: 0,
+    target: {},
+    sessions: [],
+    closedSessions: 0,
+    operations: [],
+    projectFiles: [],
+    projectTruncated: false,
+    projectFilesError: undefined,
+    pickedProjectPath: undefined,
+    pickCalls: 0,
+    holdPicker: false,
+    releasePicker: () => undefined,
     last(type) {
       const found = state.posted.filter((message) => message.type === type).at(-1);
       if (found === undefined) {
@@ -98,6 +125,45 @@ function fake(initial: LoadResult, options: { aliases?: () => Promise<string[]> 
     onSaved: () => {
       state.savedCount += 1;
     },
+    pickProjectPath: () => {
+      state.pickCalls += 1;
+      if (!state.holdPicker) {
+        return Promise.resolve(state.pickedProjectPath);
+      }
+      return new Promise((resolve) => {
+        state.releasePicker = () => {
+          resolve(state.pickedProjectPath);
+        };
+      });
+    },
+    openSession: (server) => {
+      state.sessions.push(server);
+      let closed = false;
+      return {
+        run: (operation) => {
+          if (closed) {
+            return Promise.reject(new ConnectionError('closed'));
+          }
+          state.operations.push('run');
+          return operation(state.target as DeploymentTarget);
+        },
+        close: () => {
+          if (!closed) {
+            closed = true;
+            state.closedSessions += 1;
+          }
+        },
+      };
+    },
+    listProjectFiles: () =>
+      state.projectFilesError === undefined
+        ? Promise.resolve({
+            files: state.projectFiles,
+            source: 'git',
+            truncated: state.projectTruncated,
+          })
+        : Promise.reject(state.projectFilesError),
+    random: () => 0,
   };
   return Object.assign(state, { host });
 }
@@ -504,7 +570,9 @@ describe('SettingsController', () => {
     const [draft] = draftsFromConfig(stored) as [SftpDraft];
     await controller.handle({ type: 'testConnection', server: { ...draft, user: 'other' } });
     expect(f.tested[0]?.connection.user).toBe('other');
-    expect(f.tested[0]?.mappings).toEqual(sftpServer().mappings);
+    // Only the connection settings are tested; the lists of the form do not take part.
+    expect(f.tested[0]?.mappings).toEqual([]);
+    expect(f.tested[0]?.connection.useSshAgent).toBe(sftpServer().connection.useSshAgent);
     expect(f.posted.filter((message) => message.type === 'testStatus')).toEqual([
       { type: 'testStatus', id: 'a1b2c3', state: 'running', text: 'Connecting…' },
       {
@@ -619,5 +687,576 @@ describe('SettingsController', () => {
 
     expect(await controller.restore(restored)).toBe(false);
     expect(controller.snapshot()?.draft).toEqual(own);
+  });
+});
+
+describe('SettingsController: operations on the server', () => {
+  const SESSION = /^[0-9a-f]{32}$/;
+
+  async function withServer(
+    overrides: Partial<SftpServer> = {},
+  ): Promise<{ fake: Fake; controller: SettingsController; draft: SftpDraft }> {
+    const stored = config(sftpServer({ rootPath: '/home/deploy', ...overrides }));
+    const { fake: f, controller } = await opened(okResult(stored));
+    const [draft] = draftsFromConfig(stored) as [SftpDraft];
+    return { fake: f, controller, draft };
+  }
+
+  function listing(...names: [string, RemoteListing['entries'][number]['type']][]): RemoteListing {
+    return { entries: names.map(([name, type]) => ({ name, type })), truncated: false };
+  }
+
+  it('Autodetect sets the root path to the home directory and closes its connection', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    f.target = { realpath: () => Promise.resolve('/home/deploy') };
+
+    await controller.handle({ type: 'autodetectRoot', server: { ...draft, rootPath: '' } });
+
+    expect(f.sessions[0]?.rootPath).toBe('/');
+    expect(f.closedSessions).toBe(1);
+    expect(f.last('picked')).toEqual({
+      type: 'picked',
+      id: draft.id,
+      field: 'rootPath',
+      path: '/home/deploy',
+    });
+    expect(f.last('taskStatus')).toEqual({
+      type: 'taskStatus',
+      id: draft.id,
+      task: 'autodetect',
+      state: 'connected',
+      text: 'Root path set to the home directory: /home/deploy',
+    });
+  });
+
+  it('Autodetect refuses a home directory that cannot be stored', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    f.target = { realpath: () => Promise.resolve('/var/www/\u001b[31mapp') };
+
+    await controller.handle({ type: 'autodetectRoot', server: draft });
+
+    expect(f.posted.some((message) => message.type === 'picked')).toBe(false);
+    expect(f.last('taskStatus')).toMatchObject({
+      state: 'failed',
+      text: 'The home directory on the server cannot be used as root path: /var/www/\\x1b[31mapp',
+    });
+    expect(f.closedSessions).toBe(1);
+  });
+
+  it('Autodetect reports a connection failure with its sanitized message', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    f.target = {
+      realpath: () => Promise.reject(new ConnectionError('Connection refused\u202e')),
+    };
+
+    await controller.handle({ type: 'autodetectRoot', server: draft });
+
+    expect(f.last('taskStatus')).toMatchObject({
+      state: 'failed',
+      text: 'Connection refused\\u202e',
+    });
+    expect(f.closedSessions).toBe(1);
+  });
+
+  it('passes on an unexpected error after telling the webview', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    f.target = { realpath: () => Promise.reject(new TypeError('bug')) };
+
+    await expect(
+      controller.handle({ type: 'autodetectRoot', server: draft }),
+    ).rejects.toBeInstanceOf(TypeError);
+    expect(f.last('taskStatus')).toMatchObject({ state: 'failed' });
+    expect(f.closedSessions).toBe(1);
+    // The panel is usable again.
+    f.target = { realpath: () => Promise.resolve('/home/deploy') };
+    await controller.handle({ type: 'autodetectRoot', server: draft });
+    expect(f.last('taskStatus')).toMatchObject({ state: 'connected' });
+  });
+
+  it('opens the remote picker at the root path and lists only folders it listed', async () => {
+    const { fake: f, controller, draft } = await withServer({ rootPath: '/home/deploy/' });
+    const listed: string[] = [];
+    f.target = {
+      readdir: (path) => {
+        listed.push(path);
+        return Promise.resolve(
+          listing(
+            ['www', 'directory'],
+            ['current', 'symlink'],
+            ['<img src=x onerror=alert(1)>', 'file'],
+          ),
+        );
+      },
+    };
+
+    await controller.handle({ type: 'browseRemote', server: draft, purpose: 'mapping', index: 0 });
+    const first = f.last('remoteListing');
+    expect(first.session).toMatch(SESSION);
+    expect(first).toMatchObject({ base: '/home/deploy', path: '', truncated: false });
+    expect(first.entries.map((entry) => [entry.label, entry.kind])).toEqual([
+      ['www', 'directory'],
+      ['current', 'symlink'],
+      ['<img src=x onerror=alert(1)>', 'file'],
+    ]);
+
+    await controller.handle({ type: 'remoteList', session: first.session, path: 'www' });
+    for (const path of ['current', '..', '../etc', 'nothing']) {
+      await controller.handle({ type: 'remoteList', session: first.session, path });
+      expect(f.last('remoteError')).toEqual({
+        type: 'remoteError',
+        session: first.session,
+        path,
+        message: 'This folder cannot be opened.',
+      });
+    }
+    await controller.handle({ type: 'remoteList', session: 'c'.repeat(32), path: 'www' });
+
+    expect(listed).toEqual(['/home/deploy', '/home/deploy/www']);
+    expect(f.closedSessions).toBe(0);
+
+    await controller.handle({ type: 'remoteClose' });
+    expect(f.closedSessions).toBe(1);
+    await controller.handle({ type: 'remoteList', session: first.session, path: 'www' });
+    expect(listed).toHaveLength(2);
+  });
+
+  it('runs one server operation at a time: nothing else while the picker is open', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    f.target = {
+      readdir: () => Promise.resolve(listing()),
+      realpath: () => Promise.resolve('/home/deploy'),
+    };
+    await controller.handle({ type: 'browseRemote', server: draft, purpose: 'mapping', index: 0 });
+
+    await controller.handle({ type: 'autodetectRoot', server: draft });
+    expect(f.last('taskStatus')).toMatchObject({ state: 'failed' });
+    await controller.handle({ type: 'testConnection', server: draft });
+    expect(f.tested).toEqual([]);
+    await controller.handle({ type: 'browseRemote', server: draft, purpose: 'rootPath', index: 0 });
+    expect(f.last('remoteError')).toMatchObject({ session: null });
+    expect(f.sessions).toHaveLength(1);
+
+    await controller.handle({ type: 'remoteClose' });
+    await controller.handle({ type: 'autodetectRoot', server: draft });
+    expect(f.last('taskStatus')).toMatchObject({ state: 'connected' });
+  });
+
+  it('browses from the server root for the root path', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    const listed: string[] = [];
+    f.target = {
+      readdir: (path) => {
+        listed.push(path);
+        return Promise.resolve(listing());
+      },
+    };
+    await controller.handle({
+      type: 'browseRemote',
+      server: { ...draft, rootPath: 'not absolute' },
+      purpose: 'rootPath',
+      index: 0,
+    });
+    expect(listed).toEqual(['/']);
+    expect(f.last('remoteListing').base).toBe('/');
+  });
+
+  it('does not open the picker for a mapping without a valid root path', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    await controller.handle({
+      type: 'browseRemote',
+      server: { ...draft, rootPath: 'relative' },
+      purpose: 'mapping',
+      index: 0,
+    });
+    expect(f.last('remoteError')).toEqual({
+      type: 'remoteError',
+      session: null,
+      path: '',
+      message: 'Fix the highlighted fields first.',
+    });
+    expect(f.last('errors').errors.map((error) => error.field)).toEqual(['rootPath']);
+    expect(f.sessions).toEqual([]);
+    f.target = { realpath: () => Promise.resolve('/home/deploy') };
+    await controller.handle({ type: 'autodetectRoot', server: draft });
+    expect(f.last('taskStatus')).toMatchObject({ state: 'connected' });
+  });
+
+  it('closes the picker when the connection fails, and keeps it for an SFTP error', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    f.target = {
+      readdir: () => Promise.reject(Object.assign(new Error('Permission denied'), { code: 3 })),
+    };
+    await controller.handle({ type: 'browseRemote', server: draft, purpose: 'mapping', index: 0 });
+    expect(f.last('remoteError')).toMatchObject({ path: '' });
+    expect(f.last('remoteError').session).toMatch(SESSION);
+    expect(f.closedSessions).toBe(0);
+    await controller.handle({ type: 'remoteClose' });
+
+    f.target = { readdir: () => Promise.reject(new ConnectionError('Connection lost')) };
+    await controller.handle({ type: 'browseRemote', server: draft, purpose: 'mapping', index: 0 });
+    expect(f.last('remoteError')).toEqual({
+      type: 'remoteError',
+      session: null,
+      path: '',
+      message: 'Connection lost',
+    });
+    expect(f.closedSessions).toBe(2);
+  });
+
+  it('opens nothing when the picker is cancelled while it is being opened', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    f.target = { readdir: () => Promise.resolve(listing()) };
+    const opening = controller.handle({
+      type: 'browseRemote',
+      server: draft,
+      purpose: 'mapping',
+      index: 0,
+    });
+    await controller.handle({ type: 'remoteClose' });
+    await opening;
+
+    expect(f.sessions).toEqual([]);
+    expect(f.posted.some((message) => message.type === 'remoteListing')).toBe(false);
+    f.target = { realpath: () => Promise.resolve('/home/deploy') };
+    await controller.handle({ type: 'autodetectRoot', server: draft });
+    expect(f.last('taskStatus')).toMatchObject({ state: 'connected' });
+  });
+
+  it('runs Test Connection although a mapping of the form is not valid yet', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    await controller.handle({
+      type: 'testConnection',
+      server: { ...draft, mappings: [{ localPath: '../x', deploymentPath: '' }] },
+    });
+    expect(f.tested).toHaveLength(1);
+    expect(f.last('testStatus')).toMatchObject({ state: 'connected' });
+  });
+
+  it('closes the picker connection when the panel is closed', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    f.target = { readdir: () => Promise.resolve(listing()) };
+    await controller.handle({ type: 'browseRemote', server: draft, purpose: 'mapping', index: 0 });
+    controller.dispose();
+    expect(f.closedSessions).toBe(1);
+  });
+
+  it('Verify Mapping looks up 20 sampled files and reports what was found', async () => {
+    const {
+      fake: f,
+      controller,
+      draft,
+    } = await withServer({
+      mappings: [{ localPath: '.', deploymentPath: 'www/app' }],
+      excludedLocalPaths: ['vendor'],
+    });
+    f.projectFiles = [
+      ...Array.from({ length: 30 }, (_, i) => `src/f${i}.php`),
+      'vendor/autoload.php',
+    ];
+    const stats: string[] = [];
+    f.target = {
+      stat: (path) => {
+        stats.push(path);
+        return Promise.resolve(
+          stats.length <= 18 ? { type: 'file', size: 1, mtime: 0, mode: 0o644 } : null,
+        );
+      },
+    };
+
+    await controller.handle({ type: 'verifyMapping', server: draft });
+
+    expect(stats).toHaveLength(20);
+    expect(stats.every((path) => path.startsWith('/home/deploy/www/app/src/'))).toBe(true);
+    const result = f.last('verifyResult');
+    expect(result.source).toBe('git');
+    expect(result.checks).toHaveLength(1);
+    expect(result.checks[0]).toMatchObject({
+      checked: 20,
+      found: 18,
+      verdict: 'correct',
+      text: '18/20 files found – mapping looks correct',
+    });
+    expect(result.checks[0]?.missing).toHaveLength(2);
+    expect(f.last('taskStatus')).toMatchObject({ task: 'verify', state: 'connected' });
+    expect(f.closedSessions).toBe(1);
+  });
+
+  it('Verify Mapping needs a mapping and valid fields', async () => {
+    const { fake: f, controller, draft } = await withServer({ mappings: [] });
+    await controller.handle({ type: 'verifyMapping', server: draft });
+    expect(f.last('taskStatus')).toMatchObject({ state: 'failed', text: 'Add a mapping first.' });
+
+    await controller.handle({
+      type: 'verifyMapping',
+      server: { ...draft, mappings: [{ localPath: '../x', deploymentPath: '' }] },
+    });
+    expect(f.last('taskStatus')).toMatchObject({ text: 'Fix the highlighted fields first.' });
+    expect(f.last('errors').errors.map((error) => error.field)).toEqual(['mappings.0.localPath']);
+    expect(f.sessions).toEqual([]);
+  });
+
+  it('puts a path picked inside the project into the row, relative to the project', async () => {
+    const {
+      fake: f,
+      controller,
+      draft,
+    } = await withServer({
+      mappings: [{ localPath: '.', deploymentPath: '' }],
+    });
+    await controller.handle({ type: 'draft', servers: [draft] });
+    f.pickedProjectPath = `${PROJECT}/public/assets`;
+
+    await controller.handle({ type: 'pickProjectPath', id: draft.id, list: 'mappings', index: 0 });
+
+    expect(f.last('pickedItem')).toEqual({
+      type: 'pickedItem',
+      id: draft.id,
+      list: 'mappings',
+      index: 0,
+      path: 'public/assets',
+    });
+    const kept = controller.snapshot()?.draft[0];
+    expect(kept?.type === 'sftp' ? kept.mappings[0]?.localPath : null).toBe('public/assets');
+  });
+
+  it('refuses a picked path outside the project', async () => {
+    const {
+      fake: f,
+      controller,
+      draft,
+    } = await withServer({
+      mappings: [{ localPath: '.', deploymentPath: '' }],
+    });
+    f.pickedProjectPath = '/home/deploy/.ssh';
+    await controller.handle({ type: 'pickProjectPath', id: draft.id, list: 'mappings', index: 0 });
+    expect(f.last('problem').message).toContain('not inside the project folder');
+    expect(f.posted.some((message) => message.type === 'pickedItem')).toBe(false);
+  });
+
+  describe('without a result that looks like success', () => {
+    const FOUND = { type: 'file' as const, size: 1, mtime: 0, mode: 0o644 };
+
+    it('is not green when a mapping is wrong', async () => {
+      const {
+        fake: f,
+        controller,
+        draft,
+      } = await withServer({
+        mappings: [{ localPath: '.', deploymentPath: 'www/app' }],
+        excludedLocalPaths: [],
+      });
+      f.projectFiles = Array.from({ length: 30 }, (_, i) => `src/f${i}.php`);
+      f.target = { stat: () => Promise.resolve(null) };
+      await controller.handle({ type: 'verifyMapping', server: draft });
+      expect(f.last('verifyResult').checks[0]?.verdict).toBe('wrong');
+      expect(f.last('taskStatus')).toMatchObject({ state: 'failed', text: '0/20 files found.' });
+    });
+
+    it.each([
+      [['vendor/a.php'], 'All project files of the mappings are excluded, so nothing was checked.'],
+      [[], 'No project files were found, so nothing was checked.'],
+      [['other/a.php'], 'No project file is inside a mapping, so nothing was checked.'],
+    ])('does not connect without files to check (%j)', async (files, text) => {
+      const {
+        fake: f,
+        controller,
+        draft,
+      } = await withServer({
+        mappings: [{ localPath: files[0] === 'other/a.php' ? 'src' : '.', deploymentPath: 'www' }],
+        excludedLocalPaths: ['vendor'],
+      });
+      f.projectFiles = files;
+      await controller.handle({ type: 'verifyMapping', server: draft });
+      expect(f.sessions).toEqual([]);
+      expect(f.last('taskStatus')).toMatchObject({ state: 'failed', text });
+      expect(f.last('verifyResult').checks).toHaveLength(1);
+    });
+
+    it('passes on that the project files were cut off', async () => {
+      const {
+        fake: f,
+        controller,
+        draft,
+      } = await withServer({
+        mappings: [{ localPath: '.', deploymentPath: 'www' }],
+        excludedLocalPaths: [],
+      });
+      f.projectFiles = ['src/a.php'];
+      f.projectTruncated = true;
+      f.target = { stat: () => Promise.resolve(FOUND) };
+      await controller.handle({ type: 'verifyMapping', server: draft });
+      expect(f.last('verifyResult').truncated).toBe(true);
+    });
+
+    it('reports files that could not be checked with their path and reason', async () => {
+      const {
+        fake: f,
+        controller,
+        draft,
+      } = await withServer({
+        mappings: [{ localPath: '.', deploymentPath: 'www' }],
+        excludedLocalPaths: [],
+      });
+      f.projectFiles = ['src/a.php'];
+      f.target = {
+        stat: () => Promise.reject(Object.assign(new Error('Permission\u202edenied'), { code: 3 })),
+      };
+      await controller.handle({ type: 'verifyMapping', server: draft });
+      expect(f.last('verifyResult').checks[0]).toMatchObject({
+        verdict: 'unchecked',
+        unchecked: [{ path: 'src/a.php', reason: 'Permission\\u202edenied' }],
+      });
+      expect(f.last('taskStatus')).toMatchObject({ state: 'failed' });
+    });
+
+    it('answers a Verify Mapping that fails unexpectedly, and the panel stays usable', async () => {
+      const {
+        fake: f,
+        controller,
+        draft,
+      } = await withServer({
+        mappings: [{ localPath: '.', deploymentPath: 'www' }],
+      });
+      f.projectFilesError = new TypeError('bug');
+      await expect(controller.handle({ type: 'verifyMapping', server: draft })).rejects.toThrow(
+        'bug',
+      );
+      expect(f.last('taskStatus')).toMatchObject({
+        task: 'verify',
+        state: 'failed',
+        text: 'Failed because of an unexpected error. The details are in the Deployment log.',
+      });
+      f.projectFilesError = undefined;
+      f.projectFiles = ['src/a.php'];
+      f.target = { stat: () => Promise.resolve(FOUND) };
+      await controller.handle({ type: 'verifyMapping', server: draft });
+      expect(f.last('taskStatus')).toMatchObject({ state: 'connected' });
+    });
+
+    it('answers an Autodetect that fails unexpectedly after it started', async () => {
+      const { fake: f, controller, draft } = await withServer();
+      const host = f.host as { openSession: SettingsHost['openSession'] };
+      const open = host.openSession.bind(f.host);
+      host.openSession = () => {
+        throw new TypeError('bug');
+      };
+      await expect(controller.handle({ type: 'autodetectRoot', server: draft })).rejects.toThrow(
+        'bug',
+      );
+      expect(f.last('taskStatus')).toMatchObject({ task: 'autodetect', state: 'failed' });
+      host.openSession = open;
+    });
+  });
+
+  it('Autodetect names the root path it replaced', async () => {
+    const { fake: f, controller, draft } = await withServer({ rootPath: '/var/www/app' });
+    f.target = { realpath: () => Promise.resolve('/home/deploy') };
+    await controller.handle({ type: 'autodetectRoot', server: draft });
+    expect(f.last('taskStatus').text).toBe('Root path changed from /var/www/app to /home/deploy');
+  });
+
+  it.each(['/home/deploy\u2028x', '/home/deploy\u115f', '/var/www\ufe0f/app'])(
+    'Autodetect refuses a home directory with characters that are shown escaped (%j)',
+    async (home) => {
+      const { fake: f, controller, draft } = await withServer();
+      f.target = { realpath: () => Promise.resolve(home) };
+      await controller.handle({ type: 'autodetectRoot', server: draft });
+      expect(f.posted.some((message) => message.type === 'picked')).toBe(false);
+      expect(f.last('taskStatus')).toMatchObject({ state: 'failed' });
+    },
+  );
+
+  it('answers a listing of a picker whose connection is gone, so that the tree stops', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    f.target = { readdir: () => Promise.reject(new ConnectionError('Connection lost')) };
+    await controller.handle({ type: 'browseRemote', server: draft, purpose: 'mapping', index: 0 });
+    await controller.handle({ type: 'remoteList', session: 'a'.repeat(32), path: 'www' });
+    expect(f.last('remoteError')).toMatchObject({ session: null, path: 'www' });
+  });
+
+  it('lists one folder of a picker at a time', async () => {
+    const { fake: f, controller, draft } = await withServer();
+    let release: () => void = () => undefined;
+    let calls = 0;
+    f.target = {
+      readdir: () => {
+        calls += 1;
+        if (calls === 1) {
+          return Promise.resolve(listing(['a', 'directory'], ['b', 'directory']));
+        }
+        return new Promise((resolve) => {
+          release = () => {
+            resolve(listing());
+          };
+        });
+      },
+    };
+    await controller.handle({ type: 'browseRemote', server: draft, purpose: 'mapping', index: 0 });
+    const { session } = f.last('remoteListing');
+    const first = controller.handle({ type: 'remoteList', session, path: 'a' });
+    await controller.handle({ type: 'remoteList', session, path: 'b' });
+    expect(f.last('remoteError')).toMatchObject({ session, path: 'b' });
+    expect(calls).toBe(2);
+    release();
+    await first;
+    expect(f.last('remoteListing').path).toBe('a');
+  });
+
+  it('opens one project path dialog at a time', async () => {
+    const {
+      fake: f,
+      controller,
+      draft,
+    } = await withServer({
+      mappings: [{ localPath: '.', deploymentPath: '' }],
+    });
+    f.holdPicker = true;
+    f.pickedProjectPath = `${PROJECT}/src`;
+    const first = controller.handle({
+      type: 'pickProjectPath',
+      id: draft.id,
+      list: 'mappings',
+      index: 0,
+    });
+    await controller.handle({ type: 'pickProjectPath', id: draft.id, list: 'mappings', index: 0 });
+    expect(f.pickCalls).toBe(1);
+    f.releasePicker();
+    await first;
+    expect(f.last('pickedItem').path).toBe('src');
+  });
+
+  it('does not exclude the project folder itself', async () => {
+    const { fake: f, controller, draft } = await withServer({ excludedLocalPaths: ['x'] });
+    f.pickedProjectPath = PROJECT;
+    await controller.handle({
+      type: 'pickProjectPath',
+      id: draft.id,
+      list: 'excludedLocalPaths',
+      index: 0,
+    });
+    expect(f.last('problem').message).toContain('project folder itself');
+    expect(f.posted.some((message) => message.type === 'pickedItem')).toBe(false);
+  });
+
+  it('starts no server operation after dispose and closes the running ones', async () => {
+    const {
+      fake: f,
+      controller,
+      draft,
+    } = await withServer({
+      mappings: [{ localPath: '.', deploymentPath: 'www' }],
+      excludedLocalPaths: [],
+    });
+    f.projectFiles = ['src/a.php'];
+    f.target = { stat: () => new Promise(() => undefined) };
+    void controller.handle({ type: 'verifyMapping', server: draft });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(f.sessions).toHaveLength(1);
+
+    controller.dispose();
+    expect(f.closedSessions).toBe(1);
+    await controller.handle({ type: 'autodetectRoot', server: draft });
+    await controller.handle({ type: 'browseRemote', server: draft, purpose: 'mapping', index: 0 });
+    expect(f.sessions).toHaveLength(1);
   });
 });

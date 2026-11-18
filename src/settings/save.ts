@@ -38,6 +38,12 @@ export function draftFromServer(server: Server): ServerDraft {
     rootPath: server.rootPath,
     keepAliveSeconds: String(server.keepAliveSeconds),
     idleDisconnectMinutes: String(server.idleDisconnectMinutes),
+    mappings: server.mappings.map(({ localPath, deploymentPath }) => ({
+      localPath,
+      deploymentPath,
+    })),
+    excludedLocalPaths: [...server.excludedLocalPaths],
+    excludedRemotePaths: [...server.excludedRemotePaths],
   };
 }
 
@@ -76,9 +82,12 @@ function sftpFromDraft(draft: SftpDraft, stored: Server | undefined): SftpServer
     rootPath: draft.rootPath.trim(),
     keepAliveSeconds: wholeNumber(draft.keepAliveSeconds),
     idleDisconnectMinutes: wholeNumber(draft.idleDisconnectMinutes),
-    mappings: previous?.mappings ?? [],
-    excludedLocalPaths: previous?.excludedLocalPaths ?? [],
-    excludedRemotePaths: previous?.excludedRemotePaths ?? [],
+    mappings: draft.mappings.map((mapping) => ({
+      localPath: mapping.localPath.trim(),
+      deploymentPath: mapping.deploymentPath.trim(),
+    })),
+    excludedLocalPaths: draft.excludedLocalPaths.map((entry) => entry.trim()),
+    excludedRemotePaths: draft.excludedRemotePaths.map((entry) => entry.trim()),
   };
 }
 
@@ -129,6 +138,26 @@ const FIELD_PATHS: Readonly<Record<string, string>> = {
   webUrl: 'webUrl',
 };
 
+const MAPPING_FIELD = /^mappings\[(\d+)\]\.(localPath|deploymentPath)$/;
+const EXCLUDED_FIELD = /^(excludedLocalPaths|excludedRemotePaths)\[(\d+)\]$/;
+
+/** The draft field and its label for a property path inside one of the lists. */
+function listField(where: string): { field: string; label: string } | undefined {
+  const mapping = MAPPING_FIELD.exec(where);
+  if (mapping !== null) {
+    const [, index = '0', key = ''] = mapping;
+    const which = key === 'localPath' ? 'local path' : 'deployment path';
+    return { field: `mappings.${index}.${key}`, label: `Mapping ${Number(index) + 1}, ${which}` };
+  }
+  const excluded = EXCLUDED_FIELD.exec(where);
+  if (excluded !== null) {
+    const [, list = '', index = '0'] = excluded;
+    const which = list === 'excludedLocalPaths' ? 'local' : 'remote';
+    return { field: `${list}.${index}`, label: `Excluded ${which} path ${Number(index) + 1}` };
+  }
+  return undefined;
+}
+
 const SERVER_ERROR = /^servers\[(\d+)\]\.?([^:]*): (.*)$/;
 const SERVER_REFERENCE = /servers\[(\d+)\]/g;
 
@@ -153,6 +182,14 @@ function formError(error: string, drafts: readonly ServerDraft[]): FormError {
     return draft.mode === 'alias'
       ? { serverId: draft.id, field: 'sshConfigHost', message: 'Choose an SSH config host.' }
       : { serverId: draft.id, field: 'host', message: 'Host: must not be empty' };
+  }
+  const inList = listField(where);
+  if (inList !== undefined) {
+    return {
+      serverId: draft?.id ?? null,
+      field: inList.field,
+      message: `${inList.label}: ${message}`,
+    };
   }
   const field = FIELD_PATHS[where];
   if (field === undefined) {

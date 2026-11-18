@@ -232,6 +232,26 @@ describe('validateConfig', () => {
     });
   });
 
+  describe('an excluded path names something below its base', () => {
+    it('refuses the project folder and the root path themselves, and empty entries', () => {
+      expect(
+        errorsOf(
+          withServer({ excludedLocalPaths: ['.', '', './'], excludedRemotePaths: ['.', ' '] }),
+        ),
+      ).toEqual([
+        'servers[0].excludedLocalPaths[0]: must name a file or folder inside the project, not the project folder',
+        'servers[0].excludedLocalPaths[1]: must not be empty',
+        'servers[0].excludedLocalPaths[2]: must name a file or folder inside the project, not the project folder',
+        'servers[0].excludedRemotePaths[0]: must name a path below the root path, not the root path',
+        'servers[0].excludedRemotePaths[1]: must not be empty',
+      ]);
+    });
+
+    it('accepts names that only look like the base', () => {
+      expect(errorsOf(withServer({ excludedLocalPaths: ['.git', '...', 'a/.'] }))).toEqual([]);
+    });
+  });
+
   describe('rootPath is an absolute POSIX path', () => {
     it.each([
       ['home/deploy', 'must be an absolute path on the server (starting with "/")'],
