@@ -34,3 +34,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   RSA; PKCS#8, PuTTY version 3, DSA and security keys are refused with a clear message. New
   required server setting `useSshAgent` (`false` unless the SSH agent should be used).
   Connections are refused in remote windows.
+- Commands `Deployment: Test Connection` (user, home directory and login banner of a server),
+  `Deployment: Disconnect` and `Deployment: Disconnect All`, a status bar item with the
+  connection state and a menu, and the `Deployment` output channel. Text from the server is
+  shown with control, bidirectional and invisible characters as visible escapes, and log entries
+  stay on one line.
+- `SECURITY.md`: what the extension protects, what stays in memory and its limits, and what the
+  secret leak test checks.
+- Secret leak test: a passphrase typed into the real password box of VS Code (with trace logging)
+  is searched for in the profile, the logs, the output channel, the home folder and heap
+  snapshots. Extension tests run VS Code with an allowlisted environment and without access to
+  the system keychain.

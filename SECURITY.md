@@ -16,8 +16,107 @@ extension version, your VS Code version and operating system, and the steps to r
 
 Once the problem is confirmed, a fix and a security advisory will be published.
 
-## Scope
+## What the extension protects
 
-The extension is designed never to store SSH passphrases or decrypted private keys and never to
-write them to logs. A detailed description of what the extension protects against, and what it
-cannot protect against, will be published here together with the first release.
+The extension connects to your servers with SSH keys, so it handles passphrases and decrypted
+private keys. It is designed so that:
+
+- **A passphrase is never stored.** It is asked for in a password input box when a key is
+  needed, is not saved anywhere (no VS Code secret storage, settings, state, file or keychain)
+  and is never written to a log, the `Deployment` output channel or an error message. After a
+  disconnect (requested, idle time, server or network, configuration change) the next
+  connection asks again; there is no automatic reconnect.
+- **A connection lives only in the memory of the VS Code extension host.** SSH runs in the
+  extension itself (no `ssh` process, no control socket); other processes cannot reuse the
+  connection. When the window closes, the connection is gone.
+- **Host keys are checked strictly** against your `known_hosts` files. Unknown, changed and
+  revoked keys are refused; nothing is ever written to `known_hosts`.
+- **Text from the server is untrusted.** Login banners, file names and error messages are shown
+  with control characters, bidirectional formatting characters and invisible characters
+  replaced by visible escapes (for example `\x1b` or `‮`), and each log entry stays on one
+  line.
+
+## What is kept in memory, and for how long
+
+JavaScript strings cannot be wiped, so some secret data exists in memory for a while as
+strings that the garbage collector frees at some later point:
+
+- **The passphrase.** VS Code returns the text of the password box to the extension as a
+  string; it passes from the VS Code window to the extension host as a string message (VS Code's
+  internal RPC). The extension turns it into a buffer right away and does not keep the string,
+  but the string itself remains in memory until it is garbage-collected.
+- **The key file.** The key file is read into a buffer. The ssh2 library converts key content to
+  strings while parsing it. After decrypting an encrypted OpenSSH key, the extension passes the
+  decrypted key to ssh2 as OpenSSH key text, which is built as a string.
+- **The decrypted private key** is held by the extension host while it is needed to sign the
+  login, and for keys that ssh2 keeps parsed, for the time of the connection. After a
+  disconnect, nothing refers to it any more and the garbage collector frees it.
+
+The extension does not control copies in the memory of other VS Code processes (for example
+the window that showed the password box), and nothing protects memory against a debugger.
+
+## What the tests check (secret leak canary)
+
+A test runs the installed extension in VS Code with trace logging (`--log trace`), types a
+random passphrase into the real password box, logs in to a test SSH server with a key
+encrypted with that passphrase, and then searches for the passphrase (as UTF-8, UTF-16LE,
+base64 and base64url at every alignment, hexadecimal, URL- and form-encoded) and for the
+decrypted key in:
+
+- the VS Code profile folder, including all of its logs (with trace logging VS Code writes
+  about 25 log files),
+- the extensions folder and the installed extension,
+- the home and XDG folders of the test instance,
+- the `Deployment` output channel as VS Code stores it on disk,
+- heap snapshots of the extension host after the login (passphrase) and after Disconnect
+  (passphrase and decrypted key).
+
+Each search proves that it can find what it looks for: the passphrase is planted in control
+files in each encoding, and a marker and a second key held by the test (parsed by ssh2, and as
+OpenSSH key text) are found in the heap snapshots. Every location must contain at least one file and one byte, and the logs at least
+one line.
+
+Findings with VS Code 1.144:
+
+- Neither trace logging nor any other log of VS Code contains the passphrase: VS Code does not
+  log the result of the password box, also not at trace level. Not tested: the developer option
+  `--logExtensionHostCommunication`, which logs the messages between the window and the
+  extension host; do not use it while entering a passphrase.
+- The `Deployment` output channel is written to a file in VS Code's log folder,
+  `<user data>/logs/<session>/window1/exthost/rashengka.vscode-deployment/Deployment.log`, and
+  is kept there like other VS Code logs. It contains the time, the server name and the action,
+  never a passphrase or key content.
+- Heap snapshots contain JavaScript strings only. Buffers and key objects outside the JavaScript
+  heap, and strings that V8 keeps as several parts (built by concatenation), are not covered by
+  this search.
+
+## Limits
+
+The extension cannot protect against everything:
+
+- **Other software running as you.** It protects against another process reusing an open
+  connection, not against a process of the same user that can debug the extension host, install
+  VS Code extensions, or change the deployment configuration, `~/.ssh/config` or `known_hosts`.
+  When one of those files changes while a connection is open, the connection is closed and the
+  next operation says that the configuration changed outside the extension. Other VS Code
+  extensions run in the same extension host process and could read its memory.
+- **SSH agent (`useSshAgent`).** It is off by default. When it is on, every process that can
+  reach your SSH agent can open the same connection without a passphrase. Signatures made by your
+  agent follow what the server allows: for an RSA key on a server that does not announce
+  `server-sig-algs`, the agent may sign with SHA-1 (`ssh-rsa`). Key files used directly by the
+  extension never sign with SHA-1.
+- **Configuration folder.** On Linux and macOS a configuration is loaded only when every folder
+  from the configuration root (`vscode-deployment`) down and every file is not a symbolic link,
+  belongs to you and is not writable by the group or others. The parent of the root
+  (`~/.config` or `$XDG_CONFIG_HOME`) is not checked: an account that can write there can remove
+  or replace the folder, which makes the extension refuse a configuration it does not own, but
+  cannot make it load one.
+- **Windows.** POSIX owners and modes do not exist there. The configuration is protected by the
+  permissions of your user profile folder (`%APPDATA%`), which the extension does not inspect.
+- **Upload history (`state.json`).** Several windows update it by merging, not by overwriting.
+  A write by another process at the same moment can still be lost, and anybody who can rewrite
+  the file can hide a conflict warning (a file changed on the server by somebody else). The
+  history never decides where files go.
+- **`VSCODE_DEPLOYMENT_CONFIG_DIR`.** This environment variable moves the configuration root
+  (it exists for tests). Whoever controls the environment VS Code starts with can point the
+  extension to a different configuration; the same ownership checks apply to it.
