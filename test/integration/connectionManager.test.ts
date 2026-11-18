@@ -33,6 +33,8 @@ import type { DeploymentTarget } from '../../src/transport/deploymentTarget';
 import { ScriptedPrompt, TestHome, knownHostsLine, sftpServer } from '../support/connectionFixture';
 import { startSshd, type GeneratedKey, type SshdContainer } from '../support/sshd';
 import { generateTestKeyPair } from '../support/sshKeys';
+import { DeploymentLog } from '../../src/log/deploymentLog';
+import { testUnsavedServer, type UnsavedTestHost } from '../../src/settings/testUnsavedServer';
 
 const realpath = (target: DeploymentTarget): Promise<string> => target.realpath('.');
 
@@ -541,6 +543,186 @@ describe('ConnectionManager against a local OpenSSH server', () => {
         await expect(connections.run(reference, realpath)).resolves.toBe('/home/deploy');
       },
     );
+
+    it('tests unsaved settings on a connection of their own and leaves the live one alone', async () => {
+      const home = setup([{ name: 'id_ed25519', key: clientKey() }]);
+      const connections = manager(home, new ScriptedPrompt([]));
+      const seen = events(connections);
+      const live = { server: sftpServer('a', 'test'), configFile: undefined, key: 'folder\na' };
+      await connections.run(live, realpath);
+      const sink = { info: () => undefined, warn: () => undefined, error: () => undefined };
+      const host: UnsavedTestHost = {
+        connections,
+        log: new DeploymentLog(sink),
+        withProgress: (_title, work) => work(() => undefined),
+        showInformation: () => undefined,
+        showError: () => undefined,
+      };
+      // Another host for the same server: a manual connection to the test server.
+      const unsaved = sftpServer('a', 'test', {
+        connection: {
+          sshConfigHost: null,
+          host: '127.0.0.1',
+          port: server().clientConfig.port,
+          user: 'deploy',
+          identityFile: join(home.sshDir, 'id_ed25519'),
+          useSshAgent: false,
+        },
+      });
+
+      const result = await testUnsavedServer(host, {
+        key: live.key,
+        server: unsaved,
+        folderName: 'app',
+        configFile: join(home.root, 'config.json'),
+      });
+
+      expect(result?.home).toBe('/home/deploy');
+      expect(connections.status(live.key)).toBe('connected');
+      expect(connections.activeServerIds()).toEqual([live.key]);
+      expect(
+        seen.filter((event) => event.serverId === live.key && event.status === 'disconnected'),
+      ).toEqual([]);
+    });
+
+    it('forgets an outside change seen by a Test Connection with unsaved settings', async () => {
+      const home = setup([{ name: 'id_ed25519', key: clientKey() }]);
+      const configFile = join(home.root, 'config.json');
+      writeFileSync(configFile, '{}\n');
+      const connections = manager(home, new ScriptedPrompt([]));
+      const seen = events(connections);
+      const sink = { info: () => undefined, warn: () => undefined, error: () => undefined };
+      let changeDuringTest = true;
+      const host: UnsavedTestHost = {
+        connections,
+        log: new DeploymentLog(sink),
+        withProgress: async (_title, work) => {
+          const result = await work(() => undefined);
+          if (changeDuringTest) {
+            // config.json changes while the test connection is open.
+            appendFileSync(configFile, '\n');
+            await waitFor(
+              () => seen.some((event) => event.reason === 'configurationChanged'),
+              'the close',
+            );
+          }
+          return result;
+        },
+        showInformation: () => undefined,
+        showError: () => undefined,
+      };
+      const choice = {
+        key: 'folder\na',
+        server: sftpServer('a', 'test'),
+        folderName: 'app',
+        configFile,
+      };
+
+      expect((await testUnsavedServer(host, choice))?.home).toBe('/home/deploy');
+      changeDuringTest = false;
+      expect((await testUnsavedServer(host, choice))?.home).toBe('/home/deploy');
+      expect(connections.activeServerIds()).toEqual([]);
+    });
+
+    describe('a configuration saved by the extension itself', () => {
+      /** Replaces the file the way the store does: a new file renamed over it. */
+      function replace(file: string, text: string): void {
+        writeFileSync(`${file}.tmp`, text);
+        renameSync(`${file}.tmp`, file);
+      }
+
+      /** Long enough for the file watcher to report the change. */
+      const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 1_000));
+
+      async function connected(): Promise<{
+        connections: ConnectionManager;
+        seen: ConnectionStateEvent[];
+        configFile: string;
+        reference: { server: ReturnType<typeof sftpServer>; configFile: string };
+      }> {
+        const home = setup([{ name: 'id_ed25519', key: clientKey() }]);
+        const configFile = join(home.root, 'config.json');
+        writeFileSync(configFile, '{}\n');
+        const connections = manager(home, new ScriptedPrompt([]));
+        const seen = events(connections);
+        const reference = { server: sftpServer('a', 'test'), configFile };
+        await connections.run(reference, realpath);
+        return { connections, seen, configFile, reference };
+      }
+
+      it('keeps a connection whose settings did not change', async () => {
+        const { connections, seen, configFile, reference } = await connected();
+        await connections.writeConfiguration(configFile, () => {
+          replace(configFile, '{"saved":1}\n');
+          return Promise.resolve([{ ...reference.server, name: 'Renamed' }]);
+        });
+        await settle();
+
+        expect(seen.filter((event) => event.status === 'disconnected')).toEqual([]);
+        expect(connections.status('a')).toBe('connected');
+        await expect(connections.run(reference, realpath)).resolves.toBe('/home/deploy');
+      });
+
+      it('closes a connection whose settings changed, without reporting an outside change', async () => {
+        const { connections, seen, configFile, reference } = await connected();
+        const changed = { ...reference.server, keepAliveSeconds: 30 };
+        await connections.writeConfiguration(configFile, () => {
+          replace(configFile, '{"saved":2}\n');
+          return Promise.resolve([changed]);
+        });
+        await settle();
+
+        expect(seen.filter((event) => event.status === 'disconnected')).toEqual([
+          expect.objectContaining({ reason: 'reconfigured' }),
+        ]);
+        await expect(connections.run({ ...reference, server: changed }, realpath)).resolves.toBe(
+          '/home/deploy',
+        );
+      });
+
+      it('closes the connection of a server that was removed', async () => {
+        const { connections, seen, configFile } = await connected();
+        await connections.writeConfiguration(configFile, () => {
+          replace(configFile, '{"saved":3}\n');
+          return Promise.resolve([]);
+        });
+        await settle();
+
+        expect(connections.status('a')).toBe('disconnected');
+        expect(seen.at(-1)).toMatchObject({ reason: 'reconfigured' });
+      });
+
+      it('treats the change as one from outside when the save failed', async () => {
+        const { connections, seen, configFile, reference } = await connected();
+        await expect(
+          connections.writeConfiguration(configFile, () => {
+            replace(configFile, '{"other":1}\n');
+            return Promise.reject(new Error('the write failed'));
+          }),
+        ).rejects.toThrow('the write failed');
+        await waitFor(
+          () => seen.some((event) => event.reason === 'configurationChanged'),
+          'the close',
+        );
+        await expect(connections.run(reference, realpath)).rejects.toBeInstanceOf(
+          ConfigurationChangedError,
+        );
+      });
+
+      it('still reports a change from outside after the save', async () => {
+        const { connections, seen, configFile, reference } = await connected();
+        await connections.writeConfiguration(configFile, () => {
+          replace(configFile, '{"saved":4}\n');
+          return Promise.resolve([reference.server]);
+        });
+        await settle();
+        appendFileSync(configFile, '\n# changed\n');
+        await waitFor(
+          () => seen.some((event) => event.reason === 'configurationChanged'),
+          'the close',
+        );
+      });
+    });
 
     it('cancels a connection attempt that is waiting for the passphrase on Disconnect All', async () => {
       const home = setup([{ name: 'id_ed25519', key: encrypted }]);

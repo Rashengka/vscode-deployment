@@ -39,6 +39,11 @@ export default tseslint.config(
     },
   },
   {
+    // Runs in the webview (a browser), not in Node.js.
+    files: ['src/webview-ui/**'],
+    languageOptions: { globals: { ...globals.browser } },
+  },
+  {
     files: ['src/ssh/ssh2Bundle.ts'],
     rules: { 'no-restricted-imports': 'off' },
   },

@@ -40,6 +40,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   shown with control, bidirectional and invisible characters as visible escapes, never as a
   clickable link in a notification, and log entries stay on one line. Servers with the same id
   in different workspace folders get separate connections.
+- Command `Deployment: Open Settings`: a settings panel (one per workspace folder) to add,
+  edit, remove and choose the default server, with the connection settings of SFTP servers
+  (SSH config host alias or manual connection, identity file picker, root path, keep-alive and
+  idle disconnect, Test Connection) and the folder and web URL of in-place servers. The panel
+  runs with a strict Content Security Policy, shows every value as plain text, and its messages
+  are validated by the extension; it never receives a passphrase or key content. Saving uses the
+  validation of `config.json`, keeps mappings and excluded paths, and refuses to overwrite a
+  configuration that changed on disk since it was loaded.
 - `SECURITY.md`: what the extension protects, what stays in memory and its limits, and what the
   secret leak test checks.
 - Secret leak test: a passphrase typed into the real password box of VS Code (with trace logging)

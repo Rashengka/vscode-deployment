@@ -21,6 +21,7 @@ import { currentUid } from '../../../src/config/fileSafety';
 import { emptyConfig, type DeploymentConfig } from '../../../src/config/model';
 import { disambiguatedName, encodeProjectPath } from '../../../src/config/paths';
 import {
+  ConfigChangedError,
   InvalidConfigError,
   UnownedConfigError,
   UnsafeConfigError,
@@ -210,6 +211,75 @@ describe('saveConfig and loadConfig', () => {
       InvalidConfigError,
     );
     expect(readFileSync(file, 'utf8')).toBe(before);
+  });
+
+  it('saves over the expected content, or creates the file when none was expected', async () => {
+    const projectPath = await makeProject('app');
+    const first = withServer(projectPath);
+    await saveConfig(projectPath, first, options, { expected: null });
+    const second = { ...first, servers: [sftpServer({ name: 'Live' })] };
+    await saveConfig(projectPath, second, options, { expected: first });
+
+    expect(await loadConfig(projectPath, options)).toMatchObject({
+      status: 'ok',
+      config: second,
+    });
+  });
+
+  it('refuses to save over a file that changed since it was loaded, and keeps it', async () => {
+    const projectPath = await makeProject('app');
+    const loaded = withServer(projectPath);
+    const file = await saveConfig(projectPath, loaded, options);
+    // Another window (or the JSON editor) saves in the meantime.
+    await saveConfig(projectPath, emptyConfig(projectPath), options);
+    const onDisk = readFileSync(file, 'utf8');
+
+    await expect(
+      saveConfig(projectPath, withServer(projectPath), options, { expected: loaded }),
+    ).rejects.toBeInstanceOf(ConfigChangedError);
+    expect(readFileSync(file, 'utf8')).toBe(onDisk);
+  });
+
+  it('refuses to save when a file appeared, disappeared or became invalid meanwhile', async () => {
+    const projectPath = await makeProject('app');
+    const loaded = withServer(projectPath);
+    const file = await saveConfig(projectPath, loaded, options, { expected: null });
+    await expect(
+      saveConfig(projectPath, loaded, options, { expected: null }),
+    ).rejects.toBeInstanceOf(ConfigChangedError);
+
+    const invalid = JSON.stringify({ version: 1, projectPath, servers: 'none' });
+    writeFileSync(file, invalid);
+    await expect(
+      saveConfig(projectPath, loaded, options, { expected: loaded }),
+    ).rejects.toBeInstanceOf(ConfigChangedError);
+    expect(readFileSync(file, 'utf8')).toBe(invalid);
+
+    // A file whose project cannot be told is refused before the guard is even asked.
+    writeFileSync(file, '{ not json');
+    await expect(
+      saveConfig(projectPath, loaded, options, { expected: loaded }),
+    ).rejects.toBeInstanceOf(UnownedConfigError);
+    expect(readFileSync(file, 'utf8')).toBe('{ not json');
+
+    rmSync(file);
+    await expect(
+      saveConfig(projectPath, loaded, options, { expected: loaded }),
+    ).rejects.toBeInstanceOf(ConfigChangedError);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it('accepts a file that only differs in formatting from the expected content', async () => {
+    const projectPath = await makeProject('app');
+    const loaded = withServer(projectPath);
+    const file = await saveConfig(projectPath, loaded, options);
+    writeFileSync(file, JSON.stringify(loaded), { mode: 0o600 });
+
+    await saveConfig(projectPath, emptyConfig(projectPath), options, { expected: loaded });
+    expect(await loadConfig(projectPath, options)).toMatchObject({
+      status: 'ok',
+      config: emptyConfig(projectPath),
+    });
   });
 
   it('refuses to save a configuration of another project', async () => {

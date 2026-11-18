@@ -20,6 +20,8 @@ const BUNDLE_FILES: readonly string[] = [
   'extension/dist/extension.js',
   'extension/dist/ssh2.js',
   'extension/dist/kdfWorker.js',
+  'extension/dist/webview/main.js',
+  'extension/dist/webview/style.css',
 ];
 
 /** JSON schema of `config.json`, referenced by `contributes.jsonValidation`. */
