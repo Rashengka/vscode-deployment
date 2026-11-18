@@ -77,6 +77,54 @@ let canary: string | undefined;
 let keyLines: string[] = [];
 /** The same for the control key. */
 let controlKeyLines: string[] = [];
+/**
+ * The 32-byte ed25519 private keys (of the canary key and of the control key). They also appear
+ * inside OpenSSH key text, which the extension rebuilds from the decrypted key data before ssh2
+ * parses it.
+ */
+let keySeed: Buffer | undefined;
+let controlKeySeed: Buffer | undefined;
+
+/**
+ * Pieces of base64(prefix + data) for each alignment, 16 characters long and 4 apart: OpenSSH
+ * key text wraps its base64 every 70 characters, so the whole encoding may not be on one line,
+ * but one of these pieces always is.
+ */
+function wrappedBase64Needles(name: string, data: Buffer): Needle[] {
+  const needles: Needle[] = [];
+  for (let offset = 0; offset < 3; offset += 1) {
+    const encoded = Buffer.concat([Buffer.alloc(offset), data]).toString('base64');
+    const stable = encoded.slice(
+      Math.ceil(offset / 3) * 4,
+      Math.floor((offset + data.length) / 3) * 4,
+    );
+    for (let start = 0; start + 16 <= stable.length; start += 4) {
+      needles.push({
+        name: `${name} base64 (offset ${offset}, piece ${start / 4 + 1})`,
+        bytes: Buffer.from(stable.slice(start, start + 16)),
+      });
+    }
+  }
+  return needles;
+}
+
+function seedNeedles(name: string, seed: Buffer | undefined): Needle[] {
+  return seed === undefined
+    ? []
+    : [
+        ...wrappedBase64Needles(name, seed),
+        { name: `${name} hex`, bytes: Buffer.from(seed.toString('hex')) },
+      ];
+}
+
+/** The seed of an ed25519 key from its PKCS#8 PEM lines (16-byte header, 32-byte seed). */
+function ed25519Seed(lines: readonly string[]): Buffer {
+  const der = Buffer.from(lines.join(''), 'base64');
+  if (der.length !== 48) {
+    throw new Error('Unexpected form of a decrypted ed25519 key.');
+  }
+  return der.subarray(16);
+}
 
 function isInside(parent: string, child: string): boolean {
   const rel = relative(parent, child);
@@ -119,6 +167,8 @@ function canaryNeedles(secret: string): Needle[] {
 
 function keyNeedles(): Needle[] {
   return [
+    ...seedNeedles('decrypted key seed', keySeed),
+    ...seedNeedles('control key seed', controlKeySeed),
     ...keyLines.map((line, index) => ({
       name: `decrypted key line ${index + 1}`,
       bytes: Buffer.from(line),
@@ -182,11 +232,13 @@ async function prepare(request: Extract<AgentRequest, { command: 'prepare' }>): 
     throw new Error('The generated key cannot be decrypted with its passphrase.');
   }
   keyLines = pemLines(parsed.getPrivatePEM());
+  keySeed = ed25519Seed(keyLines);
   const control = ssh2.utils.parseKey(Buffer.from(request.controlKey));
   if (control instanceof Error) {
     throw new Error('The control key cannot be parsed.');
   }
   controlKeyLines = pemLines(control.getPrivatePEM());
+  controlKeySeed = ed25519Seed(controlKeyLines);
   return {
     encrypted: withoutPassphrase instanceof Error,
     keyLines: keyLines.length,

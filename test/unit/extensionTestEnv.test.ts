@@ -44,7 +44,7 @@ describe('extensionTestEnvironment', () => {
 
   it('points the home and XDG folders at the instance', () => {
     const env = extensionTestEnvironment(
-      { HOME: '/home/someone', XDG_CONFIG_HOME: '/home/someone/.config' },
+      { HOME: '/home/deploy', XDG_CONFIG_HOME: '/home/deploy/.config' },
       'darwin',
       DIRS,
       {},
@@ -70,7 +70,7 @@ describe('extensionTestEnvironment', () => {
     const parent = {
       Path: 'C:\\Windows',
       SystemRoot: 'C:\\Windows',
-      UserProfile: 'C:\\Users\\someone',
+      UserProfile: 'D:\\Profiles\\deploy',
       GitHub_Token: SOME_VALUE,
     };
 

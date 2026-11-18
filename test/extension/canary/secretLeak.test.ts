@@ -223,8 +223,14 @@ describe('secret leak canary (T7)', () => {
     const names = found(report);
     assert.ok(names.includes('marker'), 'the control marker was not found');
     assert.ok(
-      names.some((name) => name.startsWith('control key')),
-      'the control key held by the test was not found',
+      names.some((name) => name.startsWith('control key line')),
+      'the parsed control key held by the test was not found',
+    );
+    // The OpenSSH text of the control key (held by the test as a string) has the seed in
+    // wrapped base64, the form the extension builds from a decrypted OpenSSH key.
+    assert.ok(
+      names.some((name) => name.startsWith('control key seed')),
+      'the seed of the control key was not found',
     );
     assert.deepEqual(
       names.filter((name) => name.startsWith('passphrase') || name.startsWith('decrypted key')),
