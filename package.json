@@ -127,7 +127,8 @@
     "test:extension": "node scripts/prepare-extension-test.mts && tsc -p test/extension/tsconfig.json && node scripts/run-extension-tests.mts",
     "package": "node scripts/package.mts",
     "check:vsix": "node scripts/check-vsix.mts",
-    "check:leaks": "node scripts/check-leaks.mts"
+    "check:leaks": "node scripts/check-leaks.mts",
+    "check:audit": "node scripts/check-audit.mts"
   },
   "dependencies": {
     "ssh2": "1.17.0"
@@ -142,12 +143,12 @@
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "4.1.1",
     "esbuild": "0.28.2",
-    "eslint": "10.14.0",
+    "eslint": "10.15.0",
     "eslint-config-prettier": "10.1.8",
     "globals": "17.14.0",
     "prettier": "3.10.1",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.72.2",
+    "typescript-eslint": "8.73.0",
     "vitest": "5.1.0"
   },
   "overrides": {

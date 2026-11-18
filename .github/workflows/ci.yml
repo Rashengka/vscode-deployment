@@ -57,8 +57,10 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Verify registry signatures and provenance
         run: npm audit signatures
+      # High and critical advisories fail, except dated ones listed in
+      # scripts/lib/auditExceptions.mts; an expired exception fails again.
       - name: Audit for known vulnerabilities
-        run: npm audit --audit-level=high
+        run: npm run check:audit
       # Canary: with --ignore-scripts no native addon may exist. Fails loudly if a directory
       # cannot be searched instead of treating that as "nothing found".
       - name: Canary - no native addon of ssh2 was built
