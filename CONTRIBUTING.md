@@ -39,6 +39,14 @@ own SSH configuration, keys or `known_hosts`.
 
 On Linux without a display, run the extension tests with `xvfb-run -a npm run test:extension`.
 
+The extension tests run two VS Code instances (`main` and `canary`, the secret leak test;
+`npm run test:extension -- --label main` runs one). Neither sees your environment: only an
+allowlist of variables is passed (`scripts/lib/extensionTestEnv.mts`), `HOME` and the XDG
+folders point to temporary folders, VS Code does not read your login shell's environment
+(`--force-disable-user-env`) and never uses the system keychain or credential store
+(`--use-inmemory-secretstorage`, `--use-mock-keychain`, `--password-store=basic`). Keep it that
+way: the canary instance runs with `--log trace`, which prints the environment of VS Code.
+
 ## Leak check
 
 `npm run check:leaks` (also run in CI) looks for absolute paths from a developer machine: home
