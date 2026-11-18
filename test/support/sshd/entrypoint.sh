@@ -14,5 +14,9 @@ ssh-keygen -q -t ed25519 -N '' -C test-client -f /run/test-client/id_ed25519
 install -d -m 0700 -o deploy -g deploy /home/deploy/.ssh
 install -m 0600 -o deploy -g deploy /run/test-client/id_ed25519.pub /home/deploy/.ssh/authorized_keys
 
+# A login banner with a terminal escape sequence and a right-to-left override, so that the tests
+# can check that text from the server is sanitized before it is shown.
+printf 'Test banner\n\033[31mred\033[0m \342\200\256txt.exe\n' > /etc/ssh/banner.test
+
 touch /run/test-keys-ready
 exec /usr/sbin/sshd -D -e -f /etc/ssh/sshd_config.test

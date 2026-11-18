@@ -81,6 +81,19 @@ export interface ConnectionStateEvent {
   readonly reason?: DisconnectReason;
 }
 
+/** What is known about an open connection, for Test Connection and the status bar. */
+export interface ConnectionDetails {
+  /** The user name used to log in. */
+  readonly user: string;
+  /** `user@host:port`. */
+  readonly description: string;
+  /**
+   * The login banner exactly as the server sent it, or `undefined` when it sent none.
+   * Untrusted text: sanitize before showing it.
+   */
+  readonly banner: string | undefined;
+}
+
 export interface ServerReference {
   readonly server: SftpServer;
   /** The config.json the server comes from; watched while connected. */
@@ -160,6 +173,8 @@ interface Connection {
   changedFile: string | undefined;
   /** Aborted when the connection closes: ends prompts and key derivation of the attempt. */
   readonly abort: AbortController;
+  /** Set once the connection is open. */
+  details: ConnectionDetails | undefined;
 }
 
 /** A timeout that can be paused while the extension waits for the user. */
@@ -270,6 +285,12 @@ export class ConnectionManager {
     return connection.connected ? 'connected' : 'connecting';
   }
 
+  /** User, address and login banner of an open connection; `undefined` when not connected. */
+  details(serverId: string): ConnectionDetails | undefined {
+    const connection = this.connections.get(serverId);
+    return connection?.connected === true ? connection.details : undefined;
+  }
+
   /** Ids of the servers with an open or opening connection. */
   activeServerIds(): string[] {
     return [...this.connections.keys()];
@@ -374,6 +395,7 @@ export class ConnectionManager {
       closedReason: undefined,
       changedFile: undefined,
       abort: new AbortController(),
+      details: undefined,
     };
     this.connections.set(server.id, connection);
     this.emit({ serverId: server.id, serverName: server.name, status: 'connecting' });
@@ -414,6 +436,7 @@ export class ConnectionManager {
     }
     connection.connected = false;
     connection.client = undefined;
+    connection.details = undefined;
     if (this.connections.get(connection.serverId) === connection) {
       this.connections.delete(connection.serverId);
     }
@@ -644,6 +667,11 @@ export class ConnectionManager {
 
     return new Promise<DeploymentTarget>((resolve, reject) => {
       let settled = false;
+      /** The last banner the server sent during authentication (SSH_MSG_USERAUTH_BANNER). */
+      let banner: string | undefined;
+      client.on('banner', (message: string) => {
+        banner = message;
+      });
       const fail = (error: Error): void => {
         if (settled) {
           return;
@@ -714,6 +742,11 @@ export class ConnectionManager {
           settled = true;
           stopTimers();
           connection.connected = true;
+          connection.details = {
+            user: target.resolved.user,
+            description: target.description,
+            banner,
+          };
           resolve(new SftpTarget(sftp, target.description));
         });
       });

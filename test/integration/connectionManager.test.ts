@@ -140,6 +140,25 @@ describe('ConnectionManager against a local OpenSSH server', () => {
     expect(connections.status('a')).toBe('connected');
   });
 
+  it('reports the user and the raw login banner of the connected server', async () => {
+    const home = setup([{ name: 'id_ed25519', key: encrypted }]);
+    const connections = manager(home, new ScriptedPrompt([passphrase]));
+
+    expect(connections.details('a')).toBeUndefined();
+    await connections.run(testServer, realpath);
+
+    const details = connections.details('a');
+    expect(details?.user).toBe('deploy');
+    expect(details?.description).toBe(`deploy@127.0.0.1:${server().clientConfig.port}`);
+    // Exactly as the server sent it; the UI sanitizes it (test/support/sshd/entrypoint.sh).
+    expect(details?.banner).toContain('Test banner');
+    expect(details?.banner).toContain('\u001b[31m');
+    expect(details?.banner).toContain('\u202e');
+
+    connections.disconnect('a');
+    expect(connections.details('a')).toBeUndefined();
+  });
+
   it('asks again after a wrong passphrase and connects on the third attempt', async () => {
     const home = setup([{ name: 'id_ed25519', key: encrypted }]);
     const prompt = new ScriptedPrompt(['wrong-1', 'wrong-2', passphrase]);

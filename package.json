@@ -51,8 +51,48 @@
         "command": "vscodeDeployment.openConfig",
         "title": "Open Deployment Config (JSON)",
         "category": "Deployment"
+      },
+      {
+        "command": "vscodeDeployment.testConnection",
+        "title": "Test Connection",
+        "category": "Deployment"
+      },
+      {
+        "command": "vscodeDeployment.disconnect",
+        "title": "Disconnect",
+        "category": "Deployment"
+      },
+      {
+        "command": "vscodeDeployment.disconnectAll",
+        "title": "Disconnect All",
+        "category": "Deployment"
+      },
+      {
+        "command": "vscodeDeployment.showConnectionMenu",
+        "title": "Show Connection Menu",
+        "category": "Deployment"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "vscodeDeployment.testConnection",
+          "when": "vscodeDeployment.hasConfig"
+        },
+        {
+          "command": "vscodeDeployment.disconnect",
+          "when": "vscodeDeployment.connected"
+        },
+        {
+          "command": "vscodeDeployment.disconnectAll",
+          "when": "vscodeDeployment.connected"
+        },
+        {
+          "command": "vscodeDeployment.showConnectionMenu",
+          "when": "false"
+        }
+      ]
+    },
     "jsonValidation": [
       {
         "fileMatch": [
