@@ -31,9 +31,10 @@ private keys. It is designed so that:
   connection. When the window closes, the connection is gone.
 - **Host keys are checked strictly** against your `known_hosts` files. Unknown, changed and
   revoked keys are refused; nothing is ever written to `known_hosts`.
-- **Text from the server is untrusted.** Login banners, file names and error messages are shown
-  with control characters, bidirectional formatting characters and invisible characters
-  replaced by visible escapes (for example `\x1b` or `‮`), and each log entry stays on one
+- **Text from the server is untrusted.** Notifications show as little of it as possible, never
+  as a clickable link (a server could otherwise offer a `command:` link). Login banners, file
+  names and error messages are shown with control characters, bidirectional formatting characters and invisible characters
+  replaced by visible escapes (for example `\x1b` or `\u202e`), and each log entry stays on one
   line.
 
 ## What is kept in memory, and for how long
@@ -50,7 +51,8 @@ strings that the garbage collector frees at some later point:
   decrypted key to ssh2 as OpenSSH key text, which is built as a string.
 - **The decrypted private key** is held by the extension host while it is needed to sign the
   login, and for keys that ssh2 keeps parsed, for the time of the connection. After a
-  disconnect, nothing refers to it any more and the garbage collector frees it.
+  disconnect, the extension's code no longer refers to it, and its memory is freed by the
+  garbage collector at some later point (see below for what the tests can show).
 
 The extension does not control copies in the memory of other VS Code processes (for example
 the window that showed the password box), and nothing protects memory against a debugger.
@@ -73,8 +75,13 @@ decrypted key in:
 
 Each search proves that it can find what it looks for: the passphrase is planted in control
 files in each encoding, and a marker and a second key held by the test (parsed by ssh2, and as
-OpenSSH key text) are found in the heap snapshots. Every location must contain at least one file and one byte, and the logs at least
-one line.
+OpenSSH key text) are found in the heap snapshots. Every location must contain at least one
+file and one byte, and the logs at least one line. The test also checks that the environment
+VS Code logs at trace level contains only the variables the tests allow.
+
+Not searched: the standard output and error of the VS Code process, the temporary directory
+(`TMPDIR`), and the compressed parts of the profile (LevelDB storage with snappy compression,
+where a string would not appear as such).
 
 Findings with VS Code 1.144:
 
@@ -84,11 +91,14 @@ Findings with VS Code 1.144:
   extension host; do not use it while entering a passphrase.
 - The `Deployment` output channel is written to a file in VS Code's log folder,
   `<user data>/logs/<session>/window1/exthost/rashengka.vscode-deployment/Deployment.log`, and
-  is kept there like other VS Code logs. It contains the time, the server name and the action,
-  never a passphrase or key content.
-- Heap snapshots contain JavaScript strings only. Buffers and key objects outside the JavaScript
-  heap, and strings that V8 keeps as several parts (built by concatenation), are not covered by
-  this search.
+  is kept there like other VS Code logs. Each entry has the time, the server name and the
+  action; it also contains the user name, `user@host:port`, the home directory, the server's
+  login banner and the error messages of the server and of the connection. It never contains a
+  passphrase or key content. Check it before attaching it to an issue.
+- After Disconnect, the decrypted key is not found in the JavaScript strings of the extension
+  host heap. Heap snapshots contain JavaScript strings only: buffers and key objects outside the
+  JavaScript heap, and strings that V8 keeps as several parts (built by concatenation), are not
+  covered by this search, so this is no proof that no copy is left in memory.
 
 ## Limits
 

@@ -37,8 +37,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Commands `Deployment: Test Connection` (user, home directory and login banner of a server),
   `Deployment: Disconnect` and `Deployment: Disconnect All`, a status bar item with the
   connection state and a menu, and the `Deployment` output channel. Text from the server is
-  shown with control, bidirectional and invisible characters as visible escapes, and log entries
-  stay on one line.
+  shown with control, bidirectional and invisible characters as visible escapes, never as a
+  clickable link in a notification, and log entries stay on one line. Servers with the same id
+  in different workspace folders get separate connections.
 - `SECURITY.md`: what the extension protects, what stays in memory and its limits, and what the
   secret leak test checks.
 - Secret leak test: a passphrase typed into the real password box of VS Code (with trace logging)

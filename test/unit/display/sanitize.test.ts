@@ -24,8 +24,16 @@ describe('sanitizeForDisplay', () => {
         'x\u202ey\u2066z\u2069\u200b\u200e\u200f\u061c\u2028\u2029\ufeff\u00ad\u180e\u2060',
       ),
     ).toBe(
-      'x\\u202ey\\u2066z\\u2069\\u200b\\u200e\\u200f\\u061c\\u2028\\u2029\\ufeff\\u00ad\\u180e\\u2060',
+      'x\\u202ey\\u2066z\\u2069\\u200b\\u200e\\u200f\\u061c\\u2028\\u2029\\ufeff\\xad\\u180e\\u2060',
     );
+  });
+
+  it('shows tag characters, variation selectors and other ignorable characters as escapes', () => {
+    expect(sanitizeForDisplay('a\u{e0041}b\u{e0001}\u{e007f}')).toBe(
+      'a\\u{e0041}b\\u{e0001}\\u{e007f}',
+    );
+    expect(sanitizeForDisplay('aㅤbﾠcᅟᅠ')).toBe('a\\u3164b\\uffa0c\\u115f\\u1160');
+    expect(sanitizeForDisplay('x️y͏z឴឵\u{e0100}')).toBe('x\\ufe0fy\\u034fz\\u17b4\\u17b5\\u{e0100}');
   });
 
   it('replaces lone surrogates', () => {

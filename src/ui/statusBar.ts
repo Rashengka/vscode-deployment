@@ -45,11 +45,6 @@ export class ConnectionStatusBar implements vscode.Disposable {
     }
   }
 
-  /** The current text, for tests. */
-  get text(): string {
-    return this.item.text;
-  }
-
   dispose(): void {
     this.item.dispose();
   }

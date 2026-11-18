@@ -1,7 +1,7 @@
 /**
  * The errors a connection attempt or a read-only operation is expected to fail with. Their
  * messages are written for the user and never contain a passphrase or key content, so they are
- * shown (after sanitizing, P9). Anything else is a bug and is not caught here.
+ * shown (after sanitizing). Anything else is a bug and is not caught here.
  */
 import { AlgorithmError } from '../ssh/algorithms';
 import { KeyMismatchError, Sha1SignatureRefusedError } from '../ssh/authentication';

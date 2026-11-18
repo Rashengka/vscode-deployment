@@ -82,7 +82,7 @@ describe('statusBarPresentation', () => {
 
   it('never lets a server name inject icons or control characters', () => {
     const presentation = statusBarPresentation(
-      states({ serverId: 'a', serverName: '$(alert) Prod\u001b‮', status: 'connected' }),
+      states({ serverId: 'a', serverName: '$(alert) Prod\u001b\u202e', status: 'connected' }),
     );
 
     expect(presentation.text).toBe('$(plug) \\$(alert) Prod\\x1b\\u202e');

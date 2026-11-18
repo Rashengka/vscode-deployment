@@ -47,6 +47,16 @@ folders point to temporary folders, VS Code does not read your login shell's env
 (`--use-inmemory-secretstorage`, `--use-mock-keychain`, `--password-store=basic`). Keep it that
 way: the canary instance runs with `--log trace`, which prints the environment of VS Code.
 
+- The allowlist passes `PATH` (to find `docker`), the locale, the temporary directory, the
+  display on Linux and `DOCKER_HOST`. Docker contexts (`docker context use`, as set up by
+  Colima or OrbStack) live in your home folder, which the test instance does not see: when
+  `docker` does not reach your daemon through `/var/run/docker.sock`, set `DOCKER_HOST`.
+- The output of the canary instance contains the environment of VS Code (allowlisted only, but
+  still paths of your machine). Do not paste or share it.
+- While the canary test runs, VS Code listens for the Chrome DevTools protocol on a random port
+  of `127.0.0.1` (`--remote-debugging-port=0`): the test types the passphrase through it. Other
+  local processes could connect to that port during the test.
+
 ## Leak check
 
 `npm run check:leaks` (also run in CI) looks for absolute paths from a developer machine: home

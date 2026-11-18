@@ -87,7 +87,7 @@ describe('Test Connection and Disconnect commands', () => {
     );
     assert.ok(log.includes('home directory /home/deploy'));
     assert.ok(!log.includes('\u001b'), 'the log contains a raw escape character');
-    assert.ok(!log.includes('‮'), 'the log contains a raw bidi override');
+    assert.ok(!log.includes('\u202e'), 'the log contains a raw bidi override');
   });
 
   it('disconnects all connections', async () => {

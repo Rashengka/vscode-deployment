@@ -93,12 +93,12 @@ function assertSearched(name: string, report: CategoryReport | undefined): Categ
   return report;
 }
 
-// T7 of the security model: the passphrase is typed into the real input box of a VS Code
+// The passphrase is typed into the real input box of a VS Code
 // instance with trace logging (see the `canary` configuration in .vscode-test.mjs), the key is
 // decrypted and used for a login, and then every file the instance wrote, the Deployment output
 // channel and heap snapshots of the extension host are searched for the passphrase and the
 // decrypted key.
-describe('secret leak canary (T7)', () => {
+describe('secret leak canary', () => {
   let sshd: SshdContainer | undefined;
   let agent: Agent | undefined;
   let removeConfig: (() => void) | undefined;
@@ -194,7 +194,7 @@ describe('secret leak canary (T7)', () => {
       [],
       'the heap contains the passphrase',
     );
-    // While connected, ssh2 may hold the decrypted key (T5); recorded for SECURITY.md.
+    // While connected, ssh2 may hold the decrypted key; recorded for SECURITY.md.
     const keyHeld = found(report).some((name) => name.startsWith('decrypted key'));
     console.log(`      decrypted key in the heap while connected: ${keyHeld ? 'yes' : 'no'}`);
   });
@@ -269,17 +269,31 @@ describe('secret leak canary (T7)', () => {
       },
       includeKey: true,
       // With --log trace VS Code writes its environment to main.log; the variables of the
-      // process that started the tests must not be in it (.vscode-test.mjs sets this one).
-      forbidden: [{ name: 'environment sentinel', text: 'VSCODE_DEPLOYMENT_ENVIRONMENT_SENTINEL' }],
+      // process that started the tests must not be in it (.vscode-test.mjs sets this one),
+      // while an allowlisted one must (otherwise the environment was not logged at all and the
+      // check proves nothing).
+      texts: [
+        { name: 'environment sentinel', text: 'VSCODE_DEPLOYMENT_ENVIRONMENT_SENTINEL' },
+        { name: 'allowlisted variable', text: 'VSCODE_DEPLOYMENT_TEST_ROOT' },
+      ],
     });
 
     for (const name of ['userData', 'logs', 'extensions', 'homeAndXdg', 'outputChannel']) {
       const report = assertSearched(name, reports[name]);
-      assert.deepEqual(report.hits, [], `${name} contains the passphrase, the key or the sentinel`);
+      assert.deepEqual(
+        found(report).filter((needle) => needle !== 'allowlisted variable'),
+        [],
+        `${name} contains the passphrase, the key or the sentinel`,
+      );
     }
-    assert.ok((reports['logs']?.lines ?? 0) > 0, 'the logs have no lines');
+    const logsReport = assertSearched('logs', reports['logs']);
+    assert.ok(
+      found(logsReport).includes('allowlisted variable'),
+      'the logs do not contain the environment, so the sentinel check proves nothing',
+    );
+    assert.ok(logsReport.lines > 0, 'the logs have no lines');
     assert.ok((reports['outputChannel']?.lines ?? 0) > 0, 'the output channel has no lines');
-    // For SECURITY.md (T10): what was searched.
+    // For SECURITY.md: what was searched.
     for (const [name, report] of Object.entries(reports)) {
       console.log(
         `      ${name}: ${report.files} files, ${report.bytes} bytes, ${report.lines} lines`,

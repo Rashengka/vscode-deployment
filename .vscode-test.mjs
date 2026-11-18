@@ -58,8 +58,8 @@ const MOCHA = {
 export default defineConfig([
   {
     label: 'main',
-    // Not recursive: the leak test in canary/ needs its own instance (below).
-    files: 'out/test/extension/*.test.js',
+    // Everything except canary/: the leak test needs its own instance (below).
+    files: 'out/test/extension/{*.test.js,!(canary)/**/*.test.js}',
     // The minimum version from package.json `engines.vscode`.
     version: '1.144.0',
     ...instanceSettings(MAIN_INSTANCE),
@@ -71,10 +71,11 @@ export default defineConfig([
     mocha: MOCHA,
   },
   {
-    // The secret leak test (T7): trace logging, so that every log VS Code can write is
+    // The secret leak test: trace logging, so that every log VS Code can write is
     // searched, and remote debugging, so that the passphrase is typed into the real input box.
     label: 'canary',
-    files: 'out/test/extension/canary/*.test.js',
+    // The environment checks run here too: this instance has trace logging.
+    files: ['out/test/extension/canary/*.test.js', 'out/test/extension/environment.test.js'],
     version: '1.144.0',
     ...instanceSettings(CANARY_INSTANCE),
     launchArgs: [

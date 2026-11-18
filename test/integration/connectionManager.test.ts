@@ -451,6 +451,29 @@ describe('ConnectionManager against a local OpenSSH server', () => {
       expect(prompt.requests).toHaveLength(3);
     });
 
+    it('keeps servers with the same id from different folders apart (connection key)', async () => {
+      const home = setup([{ name: 'id_ed25519', key: encrypted }]);
+      const prompt = new ScriptedPrompt([passphrase, passphrase]);
+      const connections = manager(home, prompt);
+      const configA = join(home.root, 'a-config.json');
+      const configB = join(home.root, 'b-config.json');
+      writeFileSync(configA, '{}');
+      writeFileSync(configB, '{}');
+      const first = { server: sftpServer('a', 'test'), configFile: configA, key: 'folder-1/a' };
+      const second = { server: sftpServer('a', 'test'), configFile: configB, key: 'folder-2/a' };
+
+      await connections.run(first, realpath);
+      await connections.run(second, realpath);
+
+      // Two connections, each asked for its own passphrase.
+      expect(connections.activeServerIds().sort()).toEqual(['folder-1/a', 'folder-2/a']);
+      expect(prompt.requests).toHaveLength(2);
+      // The config.json of the second folder is watched for its own connection.
+      appendFileSync(configB, ' ');
+      await waitFor(() => connections.status('folder-2/a') === 'disconnected', 'the close');
+      expect(connections.status('folder-1/a')).toBe('connected');
+    });
+
     it('runs operations on one server one after another', async () => {
       const home = setup([{ name: 'id_ed25519', key: clientKey() }]);
       const connections = manager(home, new ScriptedPrompt([]));

@@ -37,7 +37,7 @@ describe('DeploymentLog', () => {
     const sink = new RecordingSink();
     const log = new DeploymentLog(sink);
 
-    log.info('Prod\nuction', 'Banner', 'Welcome\n[Other] Upload: done\u001b[2K‮');
+    log.info('Prod\nuction', 'Banner', 'Welcome\n[Other] Upload: done\u001b[2K\u202e');
 
     expect(sink.lines).toEqual([
       'info [Prod\\nuction] Banner: Welcome\\n[Other] Upload: done\\x1b[2K\\u202e',
@@ -93,6 +93,22 @@ describe('redactKeyMaterial', () => {
     expect(redactKeyMaterial('PuTTY-User-Key-File-2: ssh-rsa\nEncryption: none')).toBe(
       '[private key removed]',
     );
+  });
+
+  it('removes SSH2 (RFC 4716) private key blocks', () => {
+    const begin = ['----', 'BEGIN', 'SSH2', 'ENCRYPTED', 'PRIVATE', 'KEY', '----'].join(' ');
+    const end = ['----', 'END', 'SSH2', 'ENCRYPTED', 'PRIVATE', 'KEY', '----'].join(' ');
+
+    expect(redactKeyMaterial(`a ${begin}\nComment: x\nAAAA\n${end} b`)).toBe(
+      'a [private key removed] b',
+    );
+    expect(redactKeyMaterial(`a ${begin}\nAAAA`)).toBe('a [private key removed]');
+  });
+
+  it('treats a lone carriage return as a line break in OpenSSH key data', () => {
+    const second = OPENSSH_BODY.replace('b3BlbnNzaC1rZXktdjE', 'QUJD');
+
+    expect(redactKeyMaterial(`x ${OPENSSH_BODY}\r${second} y`)).toBe('x [private key removed] y');
   });
 
   it('keeps ordinary text', () => {

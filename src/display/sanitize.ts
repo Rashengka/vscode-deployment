@@ -4,15 +4,17 @@
  * {@link sanitizeForDisplay}, which makes every character that could change how the text is
  * displayed visible as an escape:
  *
- * - C0 control characters and DEL (terminal escape sequences, carriage returns that overwrite
- *   a line, NUL),
- * - C1 control characters,
- * - bidirectional formatting characters (which can make `txt.exe` look like `exe.txt`) and
- *   invisible characters (zero-width spaces and joiners, line and paragraph separators, BOM,
- *   soft hyphen),
+ * - control characters (`\p{Cc}`: C0, DEL, C1 — terminal escape sequences, carriage returns
+ *   that overwrite a line, NUL),
+ * - format characters (`\p{Cf}`: bidirectional formatting, which can make `txt.exe` look like
+ *   `exe.txt`, zero-width characters, tag characters, BOM, soft hyphen),
+ * - line and paragraph separators (`\p{Zl}`, `\p{Zp}`),
+ * - every other default-ignorable code point (variation selectors, Hangul fillers, …), which
+ *   renders as nothing,
  * - lone surrogates (not valid text).
  *
- * The result is plain text; it is never interpreted as HTML or Markdown here.
+ * The result is plain text; it is never interpreted as HTML or Markdown here. Notifications
+ * need more (links): see `src/ui/notifications.ts`.
  */
 
 export interface SanitizeOptions {
@@ -24,19 +26,11 @@ export interface SanitizeOptions {
 
 const DEFAULT_MAX_LENGTH = 2000;
 
-// eslint-disable-next-line no-control-regex -- finding control characters is the point
-const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
-const FORMATTING =
-  /[\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u206f\ufeff\ufff9-\ufffb]/;
+const INVISIBLE = /^[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]$/u;
 // With the u flag, only surrogates that are not part of a pair match.
-const LONE_SURROGATE = /[\ud800-\udfff]/u;
-
-function hex(code: number, width: number): string {
-  return code.toString(16).padStart(width, '0');
-}
+const LONE_SURROGATE = /^\p{Cs}$/u;
 
 function escapeCharacter(character: string, multiline: boolean): string {
-  const code = character.codePointAt(0) ?? 0;
   if (multiline && (character === '\n' || character === '\t')) {
     return character;
   }
@@ -49,13 +43,14 @@ function escapeCharacter(character: string, multiline: boolean): string {
       return '\\t';
     default:
   }
-  if (CONTROL.test(character)) {
-    return `\\x${hex(code, 2)}`;
+  if (!INVISIBLE.test(character) && !LONE_SURROGATE.test(character)) {
+    return character;
   }
-  if (FORMATTING.test(character) || LONE_SURROGATE.test(character)) {
-    return `\\u${hex(code, 4)}`;
+  const code = character.codePointAt(0) ?? 0;
+  if (code <= 0xff) {
+    return `\\x${code.toString(16).padStart(2, '0')}`;
   }
-  return character;
+  return code <= 0xffff ? `\\u${code.toString(16).padStart(4, '0')}` : `\\u{${code.toString(16)}}`;
 }
 
 export function sanitizeForDisplay(text: string, options: SanitizeOptions = {}): string {
@@ -69,9 +64,4 @@ export function sanitizeForDisplay(text: string, options: SanitizeOptions = {}):
   const escaped = kept.map((character) => escapeCharacter(character, multiline)).join('');
   const rest = characters.length - kept.length;
   return rest > 0 ? `${escaped}… (${rest} more characters)` : escaped;
-}
-
-/** Sanitizes the message of an error for display; anything that is not an Error is not shown. */
-export function describeErrorForDisplay(error: unknown): string {
-  return error instanceof Error ? sanitizeForDisplay(error.message) : 'Unknown error.';
 }

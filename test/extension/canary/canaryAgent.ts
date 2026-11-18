@@ -68,8 +68,8 @@ export type AgentRequest =
       readonly includeKey: boolean;
       /** A text that must be found in every category (positive control for heap snapshots). */
       readonly marker?: string;
-      /** Further texts that must not be found (not secret; reported by name). */
-      readonly forbidden?: readonly { readonly name: string; readonly text: string }[];
+      /** Further texts to look for (not secret; reported by name). */
+      readonly texts?: readonly { readonly name: string; readonly text: string }[];
     };
 
 let canary: string | undefined;
@@ -438,13 +438,13 @@ function scan(request: Extract<AgentRequest, { command: 'scan' }>): object {
   const needles = [...canaryNeedles(requireCanary()), ...(request.includeKey ? keyNeedles() : [])];
   const marker =
     request.marker === undefined ? [] : [{ name: 'marker', bytes: Buffer.from(request.marker) }];
-  const forbidden = (request.forbidden ?? []).map(({ name, text }) => ({
+  const texts = (request.texts ?? []).map(({ name, text }) => ({
     name,
     bytes: Buffer.from(text),
   }));
   const reports: Record<string, CategoryReport> = {};
   for (const [name, paths] of Object.entries(request.categories)) {
-    reports[name] = scanCategory(paths, [...needles, ...marker, ...forbidden]);
+    reports[name] = scanCategory(paths, [...needles, ...marker, ...texts]);
   }
   return reports;
 }

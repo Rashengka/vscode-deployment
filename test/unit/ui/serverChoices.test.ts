@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { FoldersSnapshot } from '../../../src/config/folders';
 import type { DeploymentConfig, InplaceServer } from '../../../src/config/model';
-import { configuredSftpServers } from '../../../src/ui/serverChoices';
+import {
+  configuredSftpServers,
+  connectionKey,
+  findChoice,
+  type SftpServerChoice,
+} from '../../../src/ui/serverChoices';
 import { sftpServer } from '../../support/connectionFixture';
 
 const inplace: InplaceServer = {
@@ -59,5 +64,26 @@ describe('configuredSftpServers', () => {
         'posix',
       ),
     ).toEqual([]);
+  });
+});
+
+describe('findChoice', () => {
+  function choice(folder: string, id: string): SftpServerChoice {
+    return {
+      key: connectionKey(folder, id),
+      server: sftpServer(id, 'prod'),
+      folderName: folder,
+      configFile: `/tmp/${folder}/config.json`,
+    };
+  }
+
+  it('finds a server by connection key, or by id when the id is unique', () => {
+    const choices = [choice('f1', 'a'), choice('f2', 'a'), choice('f2', 'b')];
+
+    expect(findChoice(choices, connectionKey('f2', 'a'))?.folderName).toBe('f2');
+    expect(findChoice(choices, 'b')?.folderName).toBe('f2');
+    // Two folders have a server "a": an id alone does not say which.
+    expect(findChoice(choices, 'a')).toBeUndefined();
+    expect(findChoice(choices, 'c')).toBeUndefined();
   });
 });

@@ -4,10 +4,36 @@ import type { FoldersSnapshot } from '../config/folders';
 import { CONFIG_FILE_NAME, type SftpServer } from '../config/model';
 
 export interface SftpServerChoice {
+  /**
+   * The connection key: workspace folder and server id (ids are unique within one config.json
+   * only).
+   */
+  readonly key: string;
   readonly server: SftpServer;
   readonly folderName: string;
   /** The config.json the server comes from (watched while connected). */
   readonly configFile: string;
+}
+
+/** The connection key of a server of a workspace folder (`folderKey` is the folder URI). */
+export function connectionKey(folderKey: string, serverId: string): string {
+  return `${folderKey}\n${serverId}`;
+}
+
+/**
+ * The server a command argument names: a connection key, or a server id when exactly one
+ * folder has a server with that id.
+ */
+export function findChoice(
+  choices: readonly SftpServerChoice[],
+  argument: string,
+): SftpServerChoice | undefined {
+  const byKey = choices.find((choice) => choice.key === argument);
+  if (byKey !== undefined) {
+    return byKey;
+  }
+  const byId = choices.filter((choice) => choice.server.id === argument);
+  return byId.length === 1 ? byId[0] : undefined;
 }
 
 /** The SFTP servers of every folder whose configuration loaded, in folder order. */
@@ -24,6 +50,7 @@ export function configuredSftpServers(
     for (const server of result.config.servers) {
       if (server.type === 'sftp') {
         choices.push({
+          key: connectionKey(folder.key, server.id),
           server,
           folderName: folder.name,
           configFile: api.join(result.dir, CONFIG_FILE_NAME),
