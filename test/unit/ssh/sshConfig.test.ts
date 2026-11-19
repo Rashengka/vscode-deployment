@@ -322,12 +322,24 @@ describe('resolveSshHost', () => {
     });
 
     it('honours an earlier applicable IgnoreUnknown', async () => {
-      const config = lines('IgnoreUnknown Frob*,UseKeychain', 'UseKeychain yes', 'Frobnicate 1');
+      const config = lines('IgnoreUnknown Frob*,Wibble', 'Wibble yes', 'Frobnicate 1');
       await expect(resolve('a', config)).resolves.toMatchObject({ hostName: 'a' });
       // Not yet in effect, or set in a block that does not apply.
-      expect((await resolveError('a', lines('UseKeychain yes', 'IgnoreUnknown *'))).line).toBe(1);
-      const inactive = lines('Host other', '  IgnoreUnknown *', 'Host *', '  UseKeychain yes');
-      expect((await resolveError('a', inactive)).directive).toBe('usekeychain');
+      expect((await resolveError('a', lines('Wibble yes', 'IgnoreUnknown *'))).line).toBe(1);
+      const inactive = lines('Host other', '  IgnoreUnknown *', 'Host *', '  Wibble yes');
+      expect((await resolveError('a', inactive)).directive).toBe('wibble');
+    });
+
+    it('accepts the options of the macOS OpenSSH client without any effect', async () => {
+      const config = lines(
+        'Host *',
+        '  UseKeychain yes',
+        '  AddKeysToAgent yes',
+        '  NoHostAuthenticationForProxyCommand yes',
+        '  IdentityFile ~/.ssh/id_ed25519',
+      );
+      const plain = lines('Host *', '  AddKeysToAgent yes', '  IdentityFile ~/.ssh/id_ed25519');
+      expect(await resolve('a', config)).toEqual(await resolve('a', plain));
     });
 
     it('ignores known OpenSSH options that do not affect the connection', async () => {

@@ -19,8 +19,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Command `Deployment: Open Deployment Config (JSON)`, which creates an empty configuration when
   there is none.
 - OpenSSH client configuration resolver (`Host`, `Include`, identity files, known hosts files;
-  proxies, `Match` and certificates are reported as unsupported) and a `known_hosts` parser
-  with hashed entries, `[host]:port`, wildcards, `@revoked` and SHA256 fingerprints.
+  proxies, `Match` and certificates are reported as unsupported; the macOS options `UseKeychain`
+  and `NoHostAuthenticationForProxyCommand` are accepted and have no effect) and a `known_hosts`
+  parser with hashed entries, `[host]:port`, wildcards, `@revoked` and SHA256 fingerprints.
 - SSH connection core: one connection per server with queued operations, keepalive, idle
   disconnect and Disconnect All, closed when the configuration, the ssh configuration or
   `known_hosts` changes on disk. Host keys are checked strictly against `known_hosts` (unknown,
@@ -47,7 +48,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   runs with a strict Content Security Policy, shows every value as plain text, and its messages
   are validated by the extension; it never receives a passphrase or key content. Saving uses the
   validation of `config.json` and refuses to overwrite a configuration that changed on disk
-  since it was loaded.
+  since it was loaded. Closing the panel with unsaved changes asks whether to discard them, with
+  Keep Editing as the default answer.
 - Settings panel tabs Mappings and Excluded Paths: mappings with a folder picker inside the
   project and a remote folder picker, local and remote excluded paths, and Verify Mapping, which
   looks up 20 random project files of each mapping on the server (from `git ls-files`, otherwise

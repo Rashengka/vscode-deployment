@@ -260,6 +260,12 @@ const IGNORED_DIRECTIVES = new Set([
   'channeltimeout',
   'versionaddendum',
   'warnweakcrypto',
+  // Options of the OpenSSH client shipped with macOS. `UseKeychain` only lets ssh keep key
+  // passphrases in the macOS keychain, which this extension never uses (it asks for the
+  // passphrase itself). `NoHostAuthenticationForProxyCommand` only relaxes host key checking
+  // behind a `ProxyCommand`, which is refused anyway; host keys are always checked strictly.
+  'usekeychain',
+  'nohostauthenticationforproxycommand',
 ]);
 
 interface ConfigLine {

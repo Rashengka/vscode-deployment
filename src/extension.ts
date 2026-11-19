@@ -22,9 +22,6 @@ import { configuredSftpServers } from './ui/serverChoices';
 import { ConnectionStatusBar } from './ui/statusBar';
 import { OPEN_SETTINGS_COMMAND, SettingsPanels } from './webview/settingsPanel';
 
-export const HELLO_WORLD_COMMAND = 'vscodeDeployment.helloWorld';
-export const HELLO_WORLD_MESSAGE = 'Hello from Deployment.';
-
 /** Delay that merges the bursts of events a single save produces. */
 const REFRESH_DELAY_MS = 150;
 
@@ -213,10 +210,6 @@ export function activate(context: vscode.ExtensionContext): void {
       loadServers: async () =>
         configuredSftpServers(await loadFolders(workspaceFolderRefs(), storeOptions())),
       openConfigCommand: OPEN_CONFIG_COMMAND,
-    }),
-    vscode.commands.registerCommand(HELLO_WORLD_COMMAND, () => {
-      void vscode.window.showInformationMessage(HELLO_WORLD_MESSAGE);
-      return HELLO_WORLD_MESSAGE;
     }),
     vscode.commands.registerCommand(OPEN_SETTINGS_COMMAND, () =>
       // The panel is returned to the extension tests only.

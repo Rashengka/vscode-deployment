@@ -43,11 +43,6 @@
   "contributes": {
     "commands": [
       {
-        "command": "vscodeDeployment.helloWorld",
-        "title": "Hello World",
-        "category": "Deployment"
-      },
-      {
         "command": "vscodeDeployment.openSettings",
         "title": "Open Settings",
         "category": "Deployment"

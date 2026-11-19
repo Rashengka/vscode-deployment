@@ -377,6 +377,21 @@ describe('SettingsController', () => {
     expect(f.last('errors').errors[0]?.message).toContain('changed outside this panel');
   });
 
+  it('shows no changed-on-disk banner after a reopen when only the panel itself saved', async () => {
+    const stored = config(sftpServer());
+    const { fake: f, controller } = await opened(okResult(stored));
+    const [draft] = draftsFromConfig(stored) as [SftpDraft];
+    await controller.handle({ type: 'save', servers: [{ ...draft, name: 'Saved' }] });
+    const edited = [{ ...draft, name: 'Unsaved' }];
+    await controller.handle({ type: 'draft', servers: edited });
+
+    const reopened = new SettingsController(f.host, controller.snapshot());
+    await reopened.handle({ type: 'ready' });
+    expect(f.last('state')).toMatchObject({ changedOnDisk: false, draft: edited });
+    await reopened.handle({ type: 'save', servers: edited });
+    expect(f.saved.map((entry) => entry.config.servers[0]?.name)).toEqual(['Saved', 'Unsaved']);
+  });
+
   it('keeps the changed-on-disk state over a reopen', async () => {
     const stored = config(sftpServer());
     const { fake: f, controller } = await opened(okResult(stored));

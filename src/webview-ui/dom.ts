@@ -53,6 +53,7 @@ const ALLOWED_ATTRIBUTES: ReadonlySet<string> = new Set([
   'checked',
   'selected',
   'disabled',
+  'hidden',
   'inputmode',
   'spellcheck',
   'autocomplete',

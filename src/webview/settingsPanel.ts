@@ -36,6 +36,7 @@ import {
   type SettingsHost,
   type SettingsSnapshot,
 } from '../settings/controller';
+import { discardPrompt, discardsChanges } from '../settings/discardPrompt';
 import { createNonce, settingsHtml } from '../settings/html';
 import type { HostMessage, LocalList, PathField } from '../settings/protocol';
 import { UnsavedServerSession, testUnsavedServer } from '../settings/testUnsavedServer';
@@ -486,20 +487,21 @@ export class SettingsPanels implements vscode.Disposable {
 
   /**
    * A webview panel cannot refuse to close, so closing it with unsaved changes asks afterwards:
-   * Cancel (the default) opens the panel again with the changes, against the configuration
-   * they were made for: a change on disk meanwhile is then shown, never overwritten.
+   * Keep Editing (the default, also what Escape and Cancel do) opens the panel again with the
+   * changes, against the configuration they were made for: a change on disk meanwhile is then
+   * shown, never overwritten.
    */
   private async confirmDiscard(
     folder: vscode.WorkspaceFolder,
     unsaved: SettingsSnapshot,
   ): Promise<void> {
-    const discard = 'Discard';
+    const prompt = discardPrompt(folder.name);
     const answer = await vscode.window.showWarningMessage(
-      `Discard the unsaved deployment settings of "${sanitizeForDisplay(folder.name, { maxLength: 80 })}"?`,
-      { modal: true, detail: 'Cancel opens the settings again with your changes.' },
-      discard,
+      prompt.message,
+      prompt.options,
+      ...prompt.items,
     );
-    if (answer !== discard && !this.disposed) {
+    if (!discardsChanges(prompt, answer) && !this.disposed) {
       this.open(folder, unsaved);
     }
   }

@@ -211,6 +211,42 @@ describe('settings view', () => {
     expect(fields).toEqual(expect.arrayContaining(['host', 'port', 'user', 'identityFile']));
   });
 
+  describe('connection dropdown', () => {
+    const aliases = ['staging', 'Beta', 'app', 'web', 'App2', 'beta'];
+    function options(server: SftpDraft): ElementNode[] {
+      const select = elements(renderApp(stateWith([server], { aliases }))).find(
+        (element) => element.attrs['id'] === 'field-connection',
+      );
+      return select ? elements(select).filter((element) => element.tag === 'option') : [];
+    }
+    const visible = (list: ElementNode[]): string[] =>
+      list.filter((option) => option.attrs['hidden'] !== true).flatMap(texts);
+
+    it('lists Manual… first, then the aliases sorted case-insensitively and stably', () => {
+      const expected = ['Manual…', 'app', 'App2', 'Beta', 'beta', 'staging', 'web'];
+      expect(visible(options(sftp({ sshConfigHost: 'web' })))).toEqual(expected);
+      expect(visible(options(sftp({ mode: 'manual' })))).toEqual(expected);
+      expect(options(sftp({ sshConfigHost: 'web' }))[0]?.attrs['value']).toBe(MANUAL_VALUE);
+    });
+
+    it('shows the placeholder of a new server only as the hidden selected value', () => {
+      const list = options(sftp());
+      expect(list[0]).toMatchObject({
+        attrs: { value: '', selected: true, disabled: true, hidden: true },
+      });
+      expect(visible(list)[0]).toBe('Manual…');
+      expect(options(sftp({ sshConfigHost: 'web' })).some((o) => o.attrs['value'] === '')).toBe(
+        false,
+      );
+    });
+
+    it('keeps the aliases from the host in their original order', () => {
+      const state = stateWith([sftp()], { aliases });
+      renderApp(state);
+      expect(state.aliases).toEqual(aliases);
+    });
+  });
+
   it('keeps an alias that is no longer in the SSH config selectable', () => {
     const tree = renderApp(stateWith([sftp({ sshConfigHost: 'gone' })]));
     expect(texts(tree)).toContain('gone (not found in the SSH config)');
@@ -239,6 +275,20 @@ describe('settings view', () => {
       const tree = renderApp({ ...base, confirm });
       const focused = elements(tree).find((element) => element.attrs['data-autofocus'] === 'true');
       expect(focused && texts(focused)).toEqual(['Cancel']);
+    }
+  });
+
+  it('shows Cancel as the first, primary button and the destructive action as secondary', () => {
+    const base = stateWith([sftp({ name: 'Production' })]);
+    for (const confirm of [{ kind: 'remove', id: 's1' }, { kind: 'discard' }] as const) {
+      const bar = elements(renderApp({ ...base, confirm })).find(
+        (element) => element.attrs['role'] === 'alertdialog',
+      );
+      const buttons = bar ? elements(bar).filter((element) => element.tag === 'button') : [];
+      expect(buttons.map((button) => [texts(button)[0], button.attrs['class']])).toEqual([
+        ['Cancel', undefined],
+        [confirm.kind === 'remove' ? 'Remove' : 'Discard', 'secondary'],
+      ]);
     }
   });
 });

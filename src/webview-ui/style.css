@@ -1,5 +1,10 @@
 /* Settings webview. Colors and fonts come from the VS Code theme (--vscode-* variables). */
 
+:root {
+  /* The corner radius of VS Code's own buttons, inputs and dropdowns (4px when not provided). */
+  --corner-radius: var(--vscode-cornerRadius-small, 4px);
+}
+
 body {
   padding: 0 16px 16px;
   color: var(--vscode-foreground);
@@ -134,6 +139,7 @@ select {
   color: var(--vscode-input-foreground);
   background: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: var(--corner-radius);
   font-family: inherit;
   font-size: inherit;
 }
@@ -162,6 +168,7 @@ button {
   color: var(--vscode-button-foreground);
   background: var(--vscode-button-background);
   border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: var(--corner-radius);
   font-family: inherit;
   font-size: inherit;
   cursor: pointer;
@@ -289,6 +296,7 @@ button.tab {
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
+  border-radius: 0;
   padding: 4px 12px;
 }
 

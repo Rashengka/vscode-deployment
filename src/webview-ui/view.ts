@@ -120,20 +120,33 @@ function defaultField(server: ServerDraft): ElementNode {
   );
 }
 
+/** Aliases in alphabetical order, ignoring case; equal names keep the order of the SSH config. */
+export function sortedAliases(aliases: readonly string[]): string[] {
+  return aliases
+    .map((alias) => ({ alias, key: alias.toLowerCase() }))
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+    .map((entry) => entry.alias);
+}
+
 function connectionSelect(state: UiState, server: SftpDraft): ElementNode {
   const manual = server.mode === 'manual';
   const selectedAlias = manual ? null : server.sshConfigHost;
   const known = state.aliases.some((alias) => alias === selectedAlias);
+  // Manual… comes first so that it can be found in a long list of aliases. The placeholder of
+  // a server without a connection is only the shown value, never an entry of the list.
   const options: ElementNode[] = [
-    h(
-      'option',
-      { value: '', selected: !manual && selectedAlias === '', disabled: true },
-      'Choose an SSH config host…',
-    ),
-    ...state.aliases.map((alias) =>
+    selectedAlias === ''
+      ? h(
+          'option',
+          { value: '', selected: true, disabled: true, hidden: true },
+          'Choose an SSH config host…',
+        )
+      : null,
+    h('option', { value: MANUAL_VALUE, selected: manual }, 'Manual…'),
+    ...sortedAliases(state.aliases).map((alias) =>
       h('option', { value: `${ALIAS_PREFIX}${alias}`, selected: alias === selectedAlias }, alias),
     ),
-  ];
+  ].filter((option): option is ElementNode => option !== null);
   if (!manual && selectedAlias !== null && selectedAlias !== '' && !known) {
     options.push(
       h(
@@ -143,7 +156,6 @@ function connectionSelect(state: UiState, server: SftpDraft): ElementNode {
       ),
     );
   }
-  options.push(h('option', { value: MANUAL_VALUE, selected: manual }, 'Manual…'));
   const invalid = hasError(state.errors, server.id, 'sshConfigHost');
   return h(
     'div',
@@ -918,6 +930,15 @@ function serverList(state: UiState): ElementNode {
   );
 }
 
+/** The safe answer of a confirmation: first, the primary button, and focused (Enter). */
+function cancelButton(): ElementNode {
+  return h(
+    'button',
+    { type: 'button', 'data-action': 'cancelConfirm', 'data-autofocus': 'true' },
+    'Cancel',
+  );
+}
+
 function confirmBar(state: UiState): ElementNode | null {
   const { confirm } = state;
   if (confirm === null) {
@@ -936,34 +957,16 @@ function confirmBar(state: UiState): ElementNode | null {
         {},
         `Remove the server "${server.name}"? It is deleted from the configuration when you save.`,
       ),
-      h('button', { type: 'button', 'data-action': 'confirmRemove' }, 'Remove'),
-      h(
-        'button',
-        {
-          type: 'button',
-          class: 'secondary',
-          'data-action': 'cancelConfirm',
-          'data-autofocus': 'true',
-        },
-        'Cancel',
-      ),
+      cancelButton(),
+      h('button', { type: 'button', class: 'secondary', 'data-action': 'confirmRemove' }, 'Remove'),
     );
   }
   return h(
     'div',
     { class: 'banner confirm', role: 'alertdialog', 'aria-label': 'Discard changes' },
     h('span', {}, 'Discard all unsaved changes?'),
-    h('button', { type: 'button', 'data-action': 'confirmDiscard' }, 'Discard'),
-    h(
-      'button',
-      {
-        type: 'button',
-        class: 'secondary',
-        'data-action': 'cancelConfirm',
-        'data-autofocus': 'true',
-      },
-      'Cancel',
-    ),
+    cancelButton(),
+    h('button', { type: 'button', class: 'secondary', 'data-action': 'confirmDiscard' }, 'Discard'),
   );
 }
 
