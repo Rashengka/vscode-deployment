@@ -89,6 +89,22 @@ export class InvalidConfigError extends Error {
   }
 }
 
+/**
+ * Thrown by `saveConfig` with a guard when `config.json` no longer holds what was loaded: another
+ * window or an editor changed, created, removed or broke it in the meantime. Nothing is written.
+ */
+export class ConfigChangedError extends Error {
+  constructor() {
+    super('The deployment configuration was changed outside this editor since it was loaded.');
+    this.name = 'ConfigChangedError';
+  }
+}
+
+/** The configuration `saveConfig` may replace: as loaded, or `null` when there was none. */
+export interface SaveGuard {
+  readonly expected: DeploymentConfig | null;
+}
+
 /** Thrown when the configuration folder of a project cannot be told apart from another's. */
 export class UnownedConfigError extends Error {
   constructor(message: string) {
@@ -387,19 +403,19 @@ const PLACEMENT_ATTEMPTS = 2;
 async function writeConfigFile(
   projectPath: string,
   resolved: Resolved,
-  content: (existing: boolean) => string | null,
+  content: (occupant: Exclude<Occupant, { kind: 'other' }>) => string | null,
 ): Promise<{ readonly file: string; readonly created: boolean }> {
   for (let attempt = 0; attempt < PLACEMENT_ATTEMPTS; attempt++) {
     const { dir, occupant } = await prepareDir(projectPath, resolved);
     const file = path.join(dir, CONFIG_FILE_NAME);
     if (occupant.kind !== 'free') {
-      const data = content(true);
+      const data = content(occupant);
       if (data !== null) {
         await writeFileAtomic(file, data);
       }
       return { file, created: false };
     }
-    const data = content(false);
+    const data = content(occupant);
     if (data !== null && (await createFileExclusive(file, data))) {
       return { file, created: true };
     }
@@ -410,15 +426,53 @@ async function writeConfigFile(
   );
 }
 
+/** The configuration a file holds as `loadConfig` would return it, or `null` when unusable. */
+function loadedContent(
+  occupant: Exclude<Occupant, { kind: 'other' }>,
+  platform: NodeJS.Platform,
+): DeploymentConfig | null {
+  if (occupant.kind === 'free' || occupant.parsed.kind !== 'json') {
+    return null;
+  }
+  const migrated = migrateConfig(occupant.parsed.value);
+  if (!migrated.ok) {
+    return null;
+  }
+  const validated = validateConfig(migrated.value, { platform });
+  return validated.ok ? validated.config : null;
+}
+
+/**
+ * Whether the file `occupant` describes still holds `expected`: the same configuration (not
+ * necessarily the same text), or no file when `expected` is `null`. An unusable file never
+ * matches, so that it is not replaced unseen.
+ */
+function holdsExpected(
+  occupant: Exclude<Occupant, { kind: 'other' }>,
+  expected: DeploymentConfig | null,
+  platform: NodeJS.Platform,
+): boolean {
+  if (expected === null) {
+    return occupant.kind === 'free';
+  }
+  const current = loadedContent(occupant, platform);
+  return current !== null && serialize(current) === serialize(expected);
+}
+
 /**
  * Saves `config` atomically. Throws `InvalidConfigError` for a configuration that would not
  * load again, `UnsafeConfigError` when the folders fail the safety checks and
  * `UnownedConfigError` when the folder may belong to another project.
+ *
+ * With a `guard`, the file is only replaced while it still holds `guard.expected` (checked right
+ * before writing); otherwise `ConfigChangedError` is thrown and nothing is written. A change by
+ * another process between that check and the atomic replacement is not detected.
  */
 export async function saveConfig(
   folder: string,
   config: DeploymentConfig,
   options: StoreOptions,
+  guard?: SaveGuard,
 ): Promise<string> {
   const resolved = resolveOptions(options);
   const projectPath = await canonicalProjectPath(folder);
@@ -432,7 +486,12 @@ export async function saveConfig(
     ]);
   }
   const data = serialize(validated.config);
-  const { file } = await writeConfigFile(projectPath, resolved, () => data);
+  const { file } = await writeConfigFile(projectPath, resolved, (occupant) => {
+    if (guard !== undefined && !holdsExpected(occupant, guard.expected, resolved.platform)) {
+      throw new ConfigChangedError();
+    }
+    return data;
+  });
   return file;
 }
 
@@ -448,7 +507,9 @@ export async function ensureConfigFile(
   const resolved = resolveOptions(options);
   const projectPath = await canonicalProjectPath(folder);
   const data = serialize(emptyConfig(projectPath));
-  return writeConfigFile(projectPath, resolved, (existing) => (existing ? null : data));
+  return writeConfigFile(projectPath, resolved, (occupant) =>
+    occupant.kind === 'free' ? data : null,
+  );
 }
 
 /** The folder whose configuration belongs to `projectPath`, or `null` when there is none. */

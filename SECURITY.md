@@ -37,6 +37,16 @@ private keys. It is designed so that:
   replaced by visible escapes (for example `\x1b` or `\u202e`), and each log entry stays on one
   line.
 
+- **The settings panel is not trusted.** `Deployment: Open Settings` is a webview with a strict
+  Content Security Policy: no inline script or style, no remote resources, no `<base>` and no
+  form submission; its single script runs only with a random nonce, and it may load files from
+  the extension's `dist/webview` folder only. Every value (server names, hosts, paths, messages)
+  is shown as plain text, never as HTML. The extension checks every message from the panel
+  against a fixed schema with size limits and drops anything else. The panel never receives a
+  passphrase or key content, only the path of an identity file; Test Connection asks for the
+  passphrase in the extension, in the same password box as the command, and tests unsaved
+  settings on a separate connection that is closed right afterwards.
+
 ## What is kept in memory, and for how long
 
 JavaScript strings cannot be wiped, so some secret data exists in memory for a while as
@@ -130,6 +140,13 @@ The extension cannot protect against everything:
   A write by another process at the same moment can still be lost, and anybody who can rewrite
   the file can hide a conflict warning (a file changed on the server by somebody else). The
   history never decides where files go.
+- **Saving from the settings panel.** A save is refused when the configuration changed on disk
+  since the panel loaded it. The check happens right before the file is atomically replaced, so
+  a change by another process in the short time between the check and the replacement is not
+  detected and is overwritten. Open connections treat the file as the extension's own from the
+  start of the save until right after the replacement, when the extension records the new file:
+  a change by another process in that window is not reported, and the connections are compared
+  with the servers the extension saved, not with what the file then holds.
 - **`VSCODE_DEPLOYMENT_CONFIG_DIR`.** This environment variable moves the configuration root
   (it exists for tests). Whoever controls the environment VS Code starts with can point the
   extension to a different configuration; the same ownership checks apply to it.

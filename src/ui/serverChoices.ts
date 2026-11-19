@@ -20,6 +20,23 @@ export function connectionKey(folderKey: string, serverId: string): string {
   return `${folderKey}\n${serverId}`;
 }
 
+/** Suffix of the keys Test Connection uses for unsaved settings; no server id contains it. */
+const TEST_KEY_SUFFIX = '\ntest';
+
+/** The key of the separate connection that tests unsaved settings of the server `key`. */
+export function testConnectionKey(key: string): string {
+  return `${key}${TEST_KEY_SUFFIX}`;
+}
+
+/**
+ * Whether `key` is one of {@link testConnectionKey}: such connections only last for the test
+ * and are not listed as connections of the window.
+ */
+export function isTestConnectionKey(key: string): boolean {
+  // Server ids cannot contain a line break, so only a test key has two of them.
+  return key.split('\n').length === 3 && key.endsWith(TEST_KEY_SUFFIX);
+}
+
 /**
  * The server a command argument names: a connection key, or a server id when exactly one
  * folder has a server with that id.

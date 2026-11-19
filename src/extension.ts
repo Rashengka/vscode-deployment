@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { createConnectionManager } from './adapters/connection';
 import { registerConnectionCommands } from './commands/connectionCommands';
 import { OPEN_CONFIG_COMMAND, openConfig } from './commands/openConfig';
+import { openSettings } from './commands/openSettings';
 import { CONTEXT_HAS_CONFIG, CONTEXT_HAS_UPLOAD_TARGET } from './config/contextKeys';
 import {
   NotificationDeduplicator,
@@ -19,6 +20,7 @@ import { DeploymentLog } from './log/deploymentLog';
 import { ConnectionStates, describeDisconnect } from './ui/connectionPresentation';
 import { configuredSftpServers } from './ui/serverChoices';
 import { ConnectionStatusBar } from './ui/statusBar';
+import { OPEN_SETTINGS_COMMAND, SettingsPanels } from './webview/settingsPanel';
 
 export const HELLO_WORLD_COMMAND = 'vscodeDeployment.helloWorld';
 export const HELLO_WORLD_MESSAGE = 'Hello from Deployment.';
@@ -179,10 +181,24 @@ export function activate(context: vscode.ExtensionContext): void {
     const what = event.status === 'disconnected' ? describeDisconnect(event.reason) : event.status;
     log.info(event.serverName, 'Connection', what);
   });
+  const showLog = (): void => {
+    channel.show(true);
+  };
+  const settingsPanels = new SettingsPanels({
+    extensionUri: context.extensionUri,
+    storeOptions,
+    connections,
+    log,
+    showLog,
+    onSaved: () => {
+      void tracker.refresh();
+    },
+  });
   context.subscriptions.push(
     channel,
     statusBar,
     tracker,
+    settingsPanels,
     {
       dispose: () => {
         stateEvents.dispose();
@@ -193,9 +209,7 @@ export function activate(context: vscode.ExtensionContext): void {
       connections,
       states,
       log,
-      showLog: () => {
-        channel.show(true);
-      },
+      showLog,
       loadServers: async () =>
         configuredSftpServers(await loadFolders(workspaceFolderRefs(), storeOptions())),
       openConfigCommand: OPEN_CONFIG_COMMAND,
@@ -204,6 +218,10 @@ export function activate(context: vscode.ExtensionContext): void {
       void vscode.window.showInformationMessage(HELLO_WORLD_MESSAGE);
       return HELLO_WORLD_MESSAGE;
     }),
+    vscode.commands.registerCommand(OPEN_SETTINGS_COMMAND, () =>
+      // The panel is returned to the extension tests only.
+      openSettings(settingsPanels, context.extensionMode === vscode.ExtensionMode.Test),
+    ),
     vscode.commands.registerCommand(OPEN_CONFIG_COMMAND, async () => {
       const uri = await openConfig(storeOptions);
       await tracker.refresh();

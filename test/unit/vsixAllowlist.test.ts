@@ -13,6 +13,9 @@ const VALID_PACKAGE = [
   'extension/dist/extension.js',
   'extension/dist/ssh2.js',
   'extension/dist/kdfWorker.js',
+  'extension/dist/webview/',
+  'extension/dist/webview/main.js',
+  'extension/dist/webview/style.css',
   'extension/schemas/',
   'extension/schemas/config.schema.json',
 ];
@@ -37,6 +40,8 @@ describe('checkVsixEntries', () => {
     'extension/dist/ssh2.js.map',
     'extension/dist/sshcrypto.node',
     'extension/dist/other.js',
+    'extension/dist/webview/main.js.map',
+    'extension/dist/webview/index.html',
     'extension/schemas/state.schema.json',
     'extension/schemas/config.schema.json.bak',
   ])('rejects %s', (entry) => {

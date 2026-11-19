@@ -12,6 +12,12 @@ workflow of JetBrains IDEs.
   workspace folder. It is stored outside the repository, in
   `${XDG_CONFIG_HOME:-~/.config}/vscode-deployment/projects/` (on Windows in
   `%APPDATA%\vscode-deployment\projects\`).
+- **Deployment: Open Settings** opens a settings panel for the servers of a workspace folder:
+  add SFTP or in-place servers, remove them, choose the default server, pick an SSH config host
+  alias or enter host, port, user and identity file manually, set the root path, keep-alive and
+  idle disconnect, and run Test Connection with the unsaved settings. Saving validates the
+  settings and never overwrites a configuration that was changed elsewhere in the meantime.
+  Mappings and excluded paths are kept, but not edited there yet.
 - **Deployment: Test Connection** connects to an SFTP server of the configuration and shows the
   user, the home directory and the server's login banner. Host aliases from `~/.ssh/config` are
   used, host keys are checked against `known_hosts`, and a key passphrase is asked for in a

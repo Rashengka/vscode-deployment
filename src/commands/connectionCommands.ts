@@ -18,7 +18,11 @@ import {
 } from '../ui/connectionPresentation';
 import { findChoice, type SftpServerChoice } from '../ui/serverChoices';
 import { SHOW_CONNECTION_MENU_COMMAND } from '../ui/statusBar';
-import { runTestConnection, type TestConnectionResult } from '../ui/testConnectionFlow';
+import {
+  runTestConnection,
+  type TestConnectionHost,
+  type TestConnectionResult,
+} from '../ui/testConnectionFlow';
 
 export type { TestConnectionResult };
 
@@ -66,18 +70,47 @@ async function pickServer(
   return picked?.choice;
 }
 
+/**
+ * The window functions Test Connection uses: a cancellable progress notification and messages
+ * with a Show Log button. Shared by the command and the settings panel, so that both run the
+ * same flow.
+ */
+export function testConnectionHost(
+  connections: ConnectionManager,
+  log: DeploymentLog,
+  showLog: () => void,
+): TestConnectionHost & { readonly connections: ConnectionManager } {
+  const withShowLog = (show: Thenable<string | undefined>): void => {
+    void show.then((answer) => {
+      if (answer === 'Show Log') {
+        showLog();
+      }
+    });
+  };
+  return {
+    connections,
+    log,
+    withProgress: async (title, work) =>
+      await vscode.window.withProgress(
+        { location: vscode.ProgressLocation.Notification, title, cancellable: true },
+        (_progress, token) =>
+          work((listener) => {
+            token.onCancellationRequested(listener);
+          }),
+      ),
+    showInformation: (message) => {
+      withShowLog(vscode.window.showInformationMessage(message, 'Show Log'));
+    },
+    showError: (message) => {
+      withShowLog(vscode.window.showErrorMessage(message, 'Show Log'));
+    },
+  };
+}
+
 export function registerConnectionCommands(
   options: ConnectionCommandsOptions,
 ): vscode.Disposable[] {
   const { connections, states, log } = options;
-
-  const withShowLog = (show: Thenable<string | undefined>): void => {
-    void show.then((answer) => {
-      if (answer === 'Show Log') {
-        options.showLog();
-      }
-    });
-  };
 
   const testConnection = async (argument?: unknown): Promise<TestConnectionResult | undefined> => {
     const choices = await options.loadServers();
@@ -104,27 +137,7 @@ export function registerConnectionCommands(
         return undefined;
       }
     }
-    return runTestConnection(
-      {
-        connections,
-        log,
-        withProgress: async (title, work) =>
-          await vscode.window.withProgress(
-            { location: vscode.ProgressLocation.Notification, title, cancellable: true },
-            (_progress, token) =>
-              work((listener) => {
-                token.onCancellationRequested(listener);
-              }),
-          ),
-        showInformation: (message) => {
-          withShowLog(vscode.window.showInformationMessage(message, 'Show Log'));
-        },
-        showError: (message) => {
-          withShowLog(vscode.window.showErrorMessage(message, 'Show Log'));
-        },
-      },
-      choice,
-    );
+    return runTestConnection(testConnectionHost(connections, log, options.showLog), choice);
   };
 
   const pickActive = async (): Promise<string | undefined> => {

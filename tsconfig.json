@@ -7,5 +7,7 @@
     "erasableSyntaxOnly": true,
     "noEmit": true
   },
-  "include": ["src", "scripts", "test/unit", "test/integration", "test/support", "*.mts"]
+  "include": ["src", "scripts", "test/unit", "test/integration", "test/support", "*.mts"],
+  // The webview entry point needs the DOM types; it has its own project (src/webview-ui).
+  "exclude": ["src/webview-ui/main.ts"]
 }

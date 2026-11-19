@@ -5,6 +5,7 @@ import {
   describeDisconnect,
   statusBarPresentation,
 } from '../../../src/ui/connectionPresentation';
+import { connectionKey, testConnectionKey } from '../../../src/ui/serverChoices';
 
 function states(
   ...events: {
@@ -33,6 +34,20 @@ describe('ConnectionStates', () => {
       { serverId: 'a', serverName: 'Production', status: 'connected' },
     ]);
     expect(tracked.anyActive()).toBe(true);
+  });
+
+  it('leaves out the connections of Test Connection with unsaved settings', () => {
+    const tracked = states({
+      serverId: testConnectionKey(connectionKey('file:///var/www/app', 'a')),
+      serverName: 'Production',
+      status: 'connected',
+    });
+    expect(tracked.list()).toEqual([]);
+    expect(tracked.anyActive()).toBe(false);
+    expect(statusBarPresentation(tracked).text).toBe('$(debug-disconnect) Disconnected');
+    expect(connectionMenuItems(tracked).map((item) => item.action.kind)).toEqual([
+      'testConnection',
+    ]);
   });
 });
 

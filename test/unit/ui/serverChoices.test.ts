@@ -5,6 +5,8 @@ import {
   configuredSftpServers,
   connectionKey,
   findChoice,
+  isTestConnectionKey,
+  testConnectionKey,
   type SftpServerChoice,
 } from '../../../src/ui/serverChoices';
 import { sftpServer } from '../../support/connectionFixture';
@@ -85,5 +87,15 @@ describe('findChoice', () => {
     // Two folders have a server "a": an id alone does not say which.
     expect(findChoice(choices, 'a')).toBeUndefined();
     expect(findChoice(choices, 'c')).toBeUndefined();
+  });
+});
+
+describe('testConnectionKey', () => {
+  it('marks a key as one of Test Connection, distinct from every server key', () => {
+    const key = connectionKey('file:///var/www/app', 'a');
+    expect(isTestConnectionKey(testConnectionKey(key))).toBe(true);
+    expect(isTestConnectionKey(key)).toBe(false);
+    expect(isTestConnectionKey('a')).toBe(false);
+    expect(testConnectionKey(key)).not.toBe(key);
   });
 });

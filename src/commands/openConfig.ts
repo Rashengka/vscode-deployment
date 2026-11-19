@@ -4,16 +4,19 @@ import type { StoreOptions } from '../config/store';
 
 export const OPEN_CONFIG_COMMAND = 'vscodeDeployment.openConfig';
 
-async function pickFolder(): Promise<vscode.WorkspaceFolder | undefined> {
+/** The local workspace folder to work with: the only one, or the one the user picks. */
+export async function pickFolder(
+  placeHolder = 'Select the folder whose deployment configuration to open',
+): Promise<vscode.WorkspaceFolder | undefined> {
   const folders = (vscode.workspace.workspaceFolders ?? []).filter(
     (folder) => folder.uri.scheme === 'file',
   );
   if (folders.length <= 1) {
     return folders[0];
   }
-  return vscode.window.showWorkspaceFolderPick({
-    placeHolder: 'Select the folder whose deployment configuration to open',
-  });
+  const picked = await vscode.window.showWorkspaceFolderPick({ placeHolder });
+  // The picker also lists folders that are not on the local file system.
+  return picked?.uri.scheme === 'file' ? picked : undefined;
 }
 
 /**

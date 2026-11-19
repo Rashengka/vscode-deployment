@@ -3,6 +3,7 @@
  * `ConnectionManager`. Kept free of the VS Code API so that it can be tested on its own.
  */
 import { sanitizeForDisplay } from '../display/sanitize';
+import { isTestConnectionKey } from './serverChoices';
 import type {
   ConnectionStateEvent,
   ConnectionStatus,
@@ -20,6 +21,10 @@ export class ConnectionStates {
   private readonly active = new Map<string, ActiveConnection>();
 
   apply(event: Pick<ConnectionStateEvent, 'serverId' | 'serverName' | 'status'>): void {
+    if (isTestConnectionKey(event.serverId)) {
+      // A Test Connection with unsaved settings: closed right after the test.
+      return;
+    }
     if (event.status === 'disconnected') {
       this.active.delete(event.serverId);
       return;

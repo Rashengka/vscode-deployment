@@ -58,7 +58,7 @@ function environment(patch: Partial<SshEnvironment> = {}): SshEnvironment {
 
 const noWatch: FileWatcher = {
   signature: () => 'same',
-  watch: () => ({ dispose: () => undefined }),
+  watch: () => ({ dispose: () => undefined, accept: () => undefined }),
 };
 
 function manager(env: SshEnvironment, loads: { count: number }): ConnectionManager {
@@ -223,6 +223,7 @@ describe('ConnectionManager watches', () => {
           dispose: () => {
             disposes += 1;
           },
+          accept: () => undefined,
         };
       },
     };
@@ -260,5 +261,58 @@ describe('ConnectionManager watches', () => {
 
     expect(await attempt).toBeInstanceOf(ConnectionError);
     expect(disposes).toBe(watches);
+  });
+
+  it('gives a connection that was still connecting the baseline of its own save', async () => {
+    const configFile = '/home/deploy/.config/vscode-deployment/projects/x/config.json';
+    let signature = 'before';
+    const baselines: (string | undefined)[] = [];
+    const recording: FileWatcher = {
+      signature: () => signature,
+      watch: (_files, _onChange, baseline) => {
+        baselines.push(baseline?.get(configFile));
+        return { dispose: () => undefined, accept: () => undefined };
+      },
+    };
+    let releaseRead: () => void = () => undefined;
+    const readStarted = new Promise<void>((started) => {
+      releaseRead = started;
+    });
+    let finishRead: (value: string | undefined) => void = () => undefined;
+    const connections = new ConnectionManager({
+      ssh2: () => realSsh2,
+      environment: () =>
+        environment({
+          // The ssh configuration is still being read while the extension saves config.json.
+          readFile: () => {
+            releaseRead();
+            return new Promise((resolve) => {
+              finishRead = resolve;
+            });
+          },
+        }),
+      prompt: () => Promise.reject(new Error('no prompt expected')),
+      deriveKey: () => Promise.reject(new Error('no key derivation expected')),
+      watcher: recording,
+    });
+    const events: ConnectionStateEvent[] = [];
+    connections.onDidChangeState((event) => events.push(event));
+
+    const attempt = connections
+      .run({ server, configFile }, () => Promise.resolve())
+      .then(
+        () => undefined,
+        (reason: unknown) => reason,
+      );
+    await readStarted;
+    await connections.writeConfiguration(configFile, () => {
+      signature = 'saved';
+      return Promise.resolve([server]);
+    });
+    finishRead(undefined);
+    await attempt;
+
+    expect(baselines).toEqual(['saved']);
+    expect(events.some((event) => event.reason === 'reconfigured')).toBe(false);
   });
 });

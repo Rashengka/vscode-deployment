@@ -22,6 +22,14 @@ export interface Disposable {
   dispose(): void;
 }
 
+export interface Watch extends Disposable {
+  /**
+   * Takes `signature` as the new baseline of `file`: a change the extension made itself, so
+   * that it is not reported. A later difference from it is reported as usual.
+   */
+  accept(file: string, signature: string): void;
+}
+
 export interface FileWatcher {
   /** The current signature of `file`, for a baseline taken before reading it. */
   signature(file: string): string;
@@ -34,7 +42,7 @@ export interface FileWatcher {
     files: readonly string[],
     onChange: (file: string) => void,
     baseline?: ReadonlyMap<string, string>,
-  ): Disposable;
+  ): Watch;
 }
 
 /** The directory to watch for `file` and the entry name in it that leads to `file`. */
@@ -144,6 +152,11 @@ export const nodeFileWatcher: FileWatcher = {
       dispose: () => {
         disposed = true;
         dispose();
+      },
+      accept: (file, signature) => {
+        if (signatures.has(file)) {
+          signatures.set(file, signature);
+        }
       },
     };
   },

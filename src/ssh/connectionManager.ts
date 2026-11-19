@@ -41,7 +41,7 @@ import {
   type ConnectionTarget,
   type SshEnvironment,
 } from './connectionTarget';
-import type { Disposable, FileWatcher } from './fileWatcher';
+import type { Disposable, FileWatcher, Watch } from './fileWatcher';
 import {
   HostKeyRejectedError,
   MAX_KNOWN_HOSTS_BYTES,
@@ -173,7 +173,18 @@ interface Connection {
   queue: Promise<unknown>;
   pending: number;
   idleTimer: ReturnType<typeof setTimeout> | undefined;
-  watch: Disposable | undefined;
+  watch: Watch | undefined;
+  /** The config.json the server comes from, if any. */
+  readonly configFile: string | undefined;
+  /** The id of the server in that file (the key may include the folder). */
+  readonly configServerId: string;
+  /** Set when config.json changed while the extension was writing it itself. */
+  changedDuringOwnWrite: boolean;
+  /**
+   * The signature of config.json after a save by the extension that happened while connecting,
+   * before the watch existed: the baseline taken earlier is out of date.
+   */
+  ownWriteSignature: string | undefined;
   /** Set once the connection is closed (or failed); it is then out of the map. */
   closedReason: DisconnectReason | undefined;
   /** Set when a watched file changed while connecting. */
@@ -262,6 +273,8 @@ export class ConnectionManager {
   /** Servers whose connection was closed by an external change, with the changed file. */
   private readonly changedOutside = new Map<string, { name: string; file: string }>();
   private readonly listeners = new Set<Listener>();
+  /** config.json files the extension is writing itself, with the number of writes. */
+  private readonly ownWrites = new Map<string, number>();
   private readonly prompt: PassphrasePrompt;
   private ssh2Module: Ssh2Module | undefined;
   private disposed = false;
@@ -352,12 +365,82 @@ export class ConnectionManager {
     return result;
   }
 
+  /**
+   * Runs `write`, which saves `configFile` from within the extension and returns the SFTP
+   * servers it now holds. That change is not treated as one from outside: a connection whose
+   * server is unchanged stays open, and one whose server was removed or whose connection
+   * settings changed is closed as reconfigured (the next operation connects anew, without an
+   * error). When `write` fails, a change seen meanwhile counts as one from outside.
+   *
+   * A change by another process while `write` runs is taken for the extension's own.
+   */
+  async writeConfiguration(
+    configFile: string,
+    write: () => Promise<readonly SftpServer[]>,
+  ): Promise<void> {
+    this.ownWrites.set(configFile, (this.ownWrites.get(configFile) ?? 0) + 1);
+    let servers: readonly SftpServer[] | undefined;
+    try {
+      servers = await write();
+    } finally {
+      const count = (this.ownWrites.get(configFile) ?? 1) - 1;
+      if (count === 0) {
+        this.ownWrites.delete(configFile);
+      } else {
+        this.ownWrites.set(configFile, count);
+      }
+      this.afterOwnWrite(configFile, servers);
+    }
+  }
+
+  private afterOwnWrite(configFile: string, servers: readonly SftpServer[] | undefined): void {
+    const signature = this.options.watcher.signature(configFile);
+    for (const connection of [...this.connections.values()]) {
+      if (connection.configFile !== configFile || connection.closedReason !== undefined) {
+        continue;
+      }
+      const changed = connection.changedDuringOwnWrite;
+      connection.changedDuringOwnWrite = false;
+      if (servers === undefined) {
+        if (changed) {
+          this.onExternalChange(connection, configFile);
+        }
+        continue;
+      }
+      if (connection.watch === undefined) {
+        // Still connecting: the watch is created later, from this baseline.
+        connection.ownWriteSignature = signature;
+      } else {
+        connection.watch.accept(configFile, signature);
+      }
+      const server = servers.find((candidate) => candidate.id === connection.configServerId);
+      if (
+        server === undefined ||
+        settingsKey(server) !== connection.settingsKey ||
+        server.idleDisconnectMinutes !== connection.idleMinutes
+      ) {
+        this.close(connection, 'reconfigured');
+      }
+    }
+  }
+
   /** Closes the connection of one server, if any. */
   disconnect(serverId: string): void {
     const connection = this.connections.get(serverId);
     if (connection !== undefined) {
       this.close(connection, 'requested');
     }
+  }
+
+  /**
+   * Closes the connection of `serverId` and forgets a pending "changed outside the extension"
+   * report for it. For connections that only lasted for one operation (Test Connection with
+   * unsaved settings): nobody is left to get the report, and the next use of the key would fail
+   * with it.
+   */
+  discard(serverId: string): void {
+    this.disconnect(serverId);
+    this.changedOutside.delete(serverId);
   }
 
   /** Closes every connection. */
@@ -400,6 +483,10 @@ export class ConnectionManager {
       pending: 0,
       idleTimer: undefined,
       watch: undefined,
+      configFile,
+      configServerId: server.id,
+      changedDuringOwnWrite: false,
+      ownWriteSignature: undefined,
       closedReason: undefined,
       changedFile: undefined,
       abort: new AbortController(),
@@ -486,6 +573,11 @@ export class ConnectionManager {
     if (connection.closedReason !== undefined) {
       return;
     }
+    if (file === connection.configFile && this.ownWrites.has(file)) {
+      // Decided when the write ends (see writeConfiguration).
+      connection.changedDuringOwnWrite = true;
+      return;
+    }
     connection.changedFile ??= file;
     // While connecting, the attempt itself fails with the change; afterwards the next
     // operation reports it.
@@ -524,6 +616,9 @@ export class ConnectionManager {
       ...target.knownHostsFiles,
     ];
     this.throwIfClosed(connection, server);
+    if (configFile !== undefined && connection.ownWriteSignature !== undefined) {
+      baseline.set(configFile, connection.ownWriteSignature);
+    }
     connection.watch = watcher.watch(
       watched,
       (file) => {

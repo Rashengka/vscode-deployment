@@ -48,6 +48,11 @@
         "category": "Deployment"
       },
       {
+        "command": "vscodeDeployment.openSettings",
+        "title": "Open Settings",
+        "category": "Deployment"
+      },
+      {
         "command": "vscodeDeployment.openConfig",
         "title": "Open Deployment Config (JSON)",
         "category": "Deployment"
@@ -116,7 +121,7 @@
     "check": "npm run lint && npm run typecheck && npm test",
     "lint": "eslint . && prettier --check .",
     "format": "prettier --write .",
-    "typecheck": "tsc -p tsconfig.json && tsc -p test/extension/tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/webview-ui/tsconfig.json && tsc -p test/extension/tsconfig.json --noEmit",
     "test": "vitest run --config vitest.config.mts",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:extension": "node scripts/prepare-extension-test.mts && tsc -p test/extension/tsconfig.json && node scripts/run-extension-tests.mts",

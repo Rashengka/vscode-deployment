@@ -6,6 +6,8 @@
  *   (`*.node`) and `cpu-features` are replaced with modules that throw when required, so the
  *   bundle never tries to load native code and behaves the same on every platform.
  * - `dist/kdfWorker.js`: the worker thread that derives keys of encrypted OpenSSH keys.
+ * - `dist/webview/main.js` and `dist/webview/style.css`: the settings webview (browser code, no
+ *   Node.js and no `vscode` module). The webview may load files from `dist/webview/` only.
  *
  * Usage: node scripts/build.mts [--production]
  */
@@ -53,6 +55,24 @@ await esbuild.build({
   minify: production,
   sourcemap: !production,
   // Keep license comments of bundled dependencies in the shipped files.
+  legalComments: 'inline',
+  logLevel: 'info',
+});
+
+await esbuild.build({
+  absWorkingDir: repoRoot,
+  entryPoints: {
+    main: 'src/webview-ui/main.ts',
+    style: 'src/webview-ui/style.css',
+  },
+  outdir: 'dist/webview',
+  bundle: true,
+  platform: 'browser',
+  // The webview runs in the Chromium of VS Code 1.144.
+  target: 'es2024',
+  format: 'iife',
+  minify: production,
+  sourcemap: !production,
   legalComments: 'inline',
   logLevel: 'info',
 });
