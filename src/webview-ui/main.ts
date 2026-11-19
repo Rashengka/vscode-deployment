@@ -9,17 +9,29 @@ import type { HostMessage, WebviewMessage } from '../settings/protocol';
 import { createNode } from './dom';
 import {
   INITIAL_STATE,
+  addListItem,
   addServer,
   applyHostMessage,
+  closePicker,
+  confirmPicker,
+  isBrowsePurpose,
   isDirty,
+  isListName,
+  openPicker,
   pathFieldOf,
+  removeListItem,
   removeServer,
   select,
   selectConnection,
+  selectPickerEntry,
+  selectTab,
   selectedServer,
+  setPickerFilter,
   startSaving,
   toggleDefault,
+  togglePickerFolder,
   updateField,
+  updateListItem,
   type UiState,
 } from './state';
 import { renderApp, renderServerList } from './view';
@@ -74,7 +86,111 @@ function update(next: UiState, how: 'full' | 'list'): void {
   }
 }
 
+function indexOf(element: HTMLElement): number {
+  const index = Number(element.dataset['index']);
+  return Number.isInteger(index) && index >= 0 ? index : -1;
+}
+
+/** Actions of the tabs, the lists and the remote folder picker; false when not one of them. */
+function onListAction(action: string, element: HTMLElement): boolean {
+  const server = selectedServer(state);
+  const list = element.dataset['list'];
+  switch (action) {
+    case 'tab': {
+      const tab = element.dataset['tab'];
+      if (tab === 'connection' || tab === 'mappings' || tab === 'excluded') {
+        update(selectTab(state, tab), 'full');
+      }
+      return true;
+    }
+    case 'addItem':
+      if (server !== undefined && isListName(list)) {
+        update(addListItem(state, server.id, list), 'full');
+        postDraft();
+      }
+      return true;
+    case 'removeItem':
+      if (server !== undefined && isListName(list) && indexOf(element) >= 0) {
+        update(removeListItem(state, server.id, list, indexOf(element)), 'full');
+        postDraft();
+      }
+      return true;
+    case 'pickLocal':
+      if (
+        server !== undefined &&
+        (list === 'mappings' || list === 'excludedLocalPaths') &&
+        indexOf(element) >= 0
+      ) {
+        post({ type: 'pickProjectPath', id: server.id, list, index: indexOf(element) });
+      }
+      return true;
+    case 'browseRemote': {
+      const purpose = element.dataset['purpose'];
+      if (server?.type === 'sftp' && isBrowsePurpose(purpose) && indexOf(element) >= 0) {
+        update(openPicker(state, server.id, purpose, indexOf(element)), 'full');
+        post({ type: 'browseRemote', server, purpose, index: indexOf(element) });
+      }
+      return true;
+    }
+    case 'autodetect':
+      if (server?.type === 'sftp') {
+        post({ type: 'autodetectRoot', server });
+      }
+      return true;
+    case 'verify':
+      if (server?.type === 'sftp') {
+        post({ type: 'verifyMapping', server });
+      }
+      return true;
+    case 'pickerToggle': {
+      const path = element.dataset['path'];
+      if (path !== undefined) {
+        const toggled = togglePickerFolder(state, path);
+        update(toggled.state, 'full');
+        const session = state.picker?.session;
+        if (toggled.list && session !== null && session !== undefined) {
+          post({ type: 'remoteList', session, path });
+        }
+      }
+      return true;
+    }
+    case 'pickerSelect': {
+      const path = element.dataset['path'];
+      const kind = element.dataset['kind'];
+      if (
+        path !== undefined &&
+        (kind === 'directory' || kind === 'file' || kind === 'symlink' || kind === 'other')
+      ) {
+        update(selectPickerEntry(state, path, kind), 'full');
+      }
+      return true;
+    }
+    case 'pickerOk':
+      if (state.picker !== null) {
+        update(confirmPicker(state), 'full');
+        post({ type: 'remoteClose' });
+        postDraft();
+      }
+      return true;
+    case 'pickerCancel':
+      cancelPicker();
+      return true;
+    default:
+      return false;
+  }
+}
+
+function cancelPicker(): void {
+  if (state.picker !== null) {
+    update(closePicker(state), 'full');
+    post({ type: 'remoteClose' });
+  }
+}
+
 function onAction(action: string, element: HTMLElement): void {
+  if (onListAction(action, element)) {
+    return;
+  }
   const server = selectedServer(state);
   switch (action) {
     case 'select':
@@ -148,6 +264,10 @@ document.addEventListener('click', (event) => {
 
 document.addEventListener('input', (event) => {
   const input = event.target;
+  if (input instanceof HTMLInputElement && input.dataset['picker'] === 'filter') {
+    update(setPickerFilter(state, input.value), 'full');
+    return;
+  }
   const server = selectedServer(state);
   if (!(input instanceof HTMLInputElement) || input.type !== 'text' || server === undefined) {
     return;
@@ -156,7 +276,15 @@ document.addEventListener('input', (event) => {
   if (field === undefined) {
     return;
   }
-  update(updateField(state, server.id, field, input.value), 'list');
+  const list = input.dataset['list'];
+  const index = indexOf(input);
+  const key = input.dataset['key'] ?? null;
+  update(
+    isListName(list) && index >= 0
+      ? updateListItem(state, server.id, list, index, key, input.value)
+      : updateField(state, server.id, field, input.value),
+    'list',
+  );
   // The error of this field no longer applies; the rest of the form stays as it is.
   document.getElementById(`error-${field}`)?.remove();
   input.removeAttribute('aria-invalid');
@@ -178,6 +306,13 @@ document.addEventListener('change', (event) => {
   }
 });
 
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && state.picker !== null) {
+    event.preventDefault();
+    cancelPicker();
+  }
+});
+
 function isHostMessage(value: unknown): value is HostMessage {
   return (
     typeof value === 'object' &&
@@ -188,7 +323,12 @@ function isHostMessage(value: unknown): value is HostMessage {
 
 window.addEventListener('message', (event: MessageEvent<unknown>) => {
   if (isHostMessage(event.data)) {
+    const hadPicker = state.picker !== null;
     update(applyHostMessage(state, event.data), 'full');
+    if (hadPicker && state.picker === null) {
+      // The server of the picker is gone from the form: its connection is closed too.
+      post({ type: 'remoteClose' });
+    }
   }
 });
 

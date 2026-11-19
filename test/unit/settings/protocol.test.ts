@@ -8,6 +8,7 @@ import {
   type SftpDraft,
 } from '../../../src/settings/draft';
 import {
+  MAX_LIST_ITEMS,
   MAX_MESSAGE_SIZE,
   MAX_SERVERS,
   MAX_TEXT_LENGTH,
@@ -119,5 +120,112 @@ describe('exceedsSize', () => {
       deep = [deep];
     }
     expect(exceedsSize(deep, MAX_MESSAGE_SIZE)).toBe(true);
+  });
+});
+
+describe('messages of the Mappings and Excluded Paths tabs', () => {
+  const mapped: SftpDraft = {
+    ...sftp,
+    mappings: [{ localPath: '.', deploymentPath: 'www/app' }],
+    excludedLocalPaths: ['.git'],
+    excludedRemotePaths: ['cache'],
+  };
+  const session = 'a'.repeat(32);
+
+  it.each([
+    { type: 'save', servers: [mapped] },
+    { type: 'pickProjectPath', id: 's1', list: 'mappings', index: 0 },
+    { type: 'pickProjectPath', id: 's1', list: 'excludedLocalPaths', index: 3 },
+    { type: 'autodetectRoot', server: mapped },
+    { type: 'verifyMapping', server: mapped },
+    { type: 'browseRemote', server: mapped, purpose: 'rootPath', index: 0 },
+    { type: 'browseRemote', server: mapped, purpose: 'mapping', index: 0 },
+    { type: 'browseRemote', server: mapped, purpose: 'excludedRemote', index: 2 },
+    { type: 'remoteList', session, path: '' },
+    { type: 'remoteList', session, path: 'www/app' },
+    { type: 'remoteClose' },
+  ])('accepts $type', (message) => {
+    expect(parseWebviewMessage(message)).toEqual({ ok: true, message });
+  });
+
+  it.each([
+    [
+      'a mapping with an extra property',
+      {
+        type: 'save',
+        servers: [{ ...mapped, mappings: [{ localPath: '.', deploymentPath: '', remote: 'x' }] }],
+      },
+    ],
+    [
+      'a mapping that is not an object',
+      { type: 'save', servers: [{ ...mapped, mappings: ['.'] }] },
+    ],
+    [
+      'an excluded path that is not text',
+      { type: 'save', servers: [{ ...mapped, excludedLocalPaths: [1] }] },
+    ],
+    [
+      'excluded paths that are not a list',
+      { type: 'save', servers: [{ ...mapped, excludedRemotePaths: 'cache' }] },
+    ],
+    [
+      'too many mappings',
+      {
+        type: 'save',
+        servers: [
+          {
+            ...mapped,
+            mappings: Array.from({ length: MAX_LIST_ITEMS + 1 }, () => ({
+              localPath: '.',
+              deploymentPath: '',
+            })),
+          },
+        ],
+      },
+    ],
+    [
+      'a local pick for a remote list',
+      { type: 'pickProjectPath', id: 's1', list: 'excludedRemotePaths', index: 0 },
+    ],
+    ['a negative row', { type: 'pickProjectPath', id: 's1', list: 'mappings', index: -1 }],
+    ['a fractional row', { type: 'pickProjectPath', id: 's1', list: 'mappings', index: 0.5 }],
+    [
+      'a row beyond the limit',
+      { type: 'pickProjectPath', id: 's1', list: 'mappings', index: MAX_LIST_ITEMS },
+    ],
+    ['Autodetect of an in-place server', { type: 'autodetectRoot', server: inplace }],
+    ['Verify Mapping of an in-place server', { type: 'verifyMapping', server: inplace }],
+    [
+      'an unknown browse purpose',
+      { type: 'browseRemote', server: mapped, purpose: 'home', index: 0 },
+    ],
+    ['a browse without a row', { type: 'browseRemote', server: mapped, purpose: 'mapping' }],
+    ['a listing with a malformed session', { type: 'remoteList', session: 'x', path: '' }],
+    ['a listing with a path that is not text', { type: 'remoteList', session, path: ['www'] }],
+    [
+      'a listing with a too long path',
+      { type: 'remoteList', session, path: 'x'.repeat(MAX_TEXT_LENGTH + 1) },
+    ],
+    ['a close with a property', { type: 'remoteClose', session }],
+  ])('refuses %s', (_what, message) => {
+    const result = parseWebviewMessage(message);
+    expect(result.ok).toBe(false);
+    expect(result.ok ? null : result.type).toBe((message as { type: string }).type);
+  });
+
+  it('compares mappings and excluded paths of drafts', () => {
+    expect(
+      sameDrafts(
+        [mapped],
+        [{ ...mapped, mappings: [{ localPath: '.', deploymentPath: 'www/app' }] }],
+      ),
+    ).toBe(true);
+    expect(
+      sameDrafts([mapped], [{ ...mapped, mappings: [{ localPath: '.', deploymentPath: 'www' }] }]),
+    ).toBe(false);
+    expect(sameDrafts([mapped], [{ ...mapped, mappings: [] }])).toBe(false);
+    expect(sameDrafts([mapped], [{ ...mapped, excludedLocalPaths: ['.git', 'vendor'] }])).toBe(
+      false,
+    );
   });
 });

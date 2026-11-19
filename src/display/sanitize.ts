@@ -26,9 +26,20 @@ export interface SanitizeOptions {
 
 const DEFAULT_MAX_LENGTH = 2000;
 
-const INVISIBLE = /^[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Default_Ignorable_Code_Point}]$/u;
-// With the u flag, only surrogates that are not part of a pair match.
-const LONE_SURROGATE = /^\p{Cs}$/u;
+/**
+ * The characters {@link sanitizeForDisplay} escapes: control, format, line and paragraph
+ * separators, every other default-ignorable code point, and (with the u flag, only those not
+ * part of a pair) lone surrogates. Shared with the checks that refuse such characters in names
+ * and paths from a server, so that what is refused and what is escaped never differ.
+ */
+const INVISIBLE_CLASS = '[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}\\p{Default_Ignorable_Code_Point}\\p{Cs}]';
+const INVISIBLE_CHARACTER = new RegExp(`^${INVISIBLE_CLASS}$`, 'u');
+const ANY_INVISIBLE = new RegExp(INVISIBLE_CLASS, 'u');
+
+/** Whether `text` has a character that {@link sanitizeForDisplay} would escape (line breaks and tabs included). */
+export function hasInvisibleCharacters(text: string): boolean {
+  return ANY_INVISIBLE.test(text);
+}
 
 function escapeCharacter(character: string, multiline: boolean): string {
   if (multiline && (character === '\n' || character === '\t')) {
@@ -43,7 +54,7 @@ function escapeCharacter(character: string, multiline: boolean): string {
       return '\\t';
     default:
   }
-  if (!INVISIBLE.test(character) && !LONE_SURROGATE.test(character)) {
+  if (!INVISIBLE_CHARACTER.test(character)) {
     return character;
   }
   const code = character.codePointAt(0) ?? 0;

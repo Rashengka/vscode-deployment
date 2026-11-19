@@ -1,5 +1,10 @@
 /* Settings webview. Colors and fonts come from the VS Code theme (--vscode-* variables). */
 
+:root {
+  /* The corner radius of VS Code's own buttons, inputs and dropdowns (4px when not provided). */
+  --corner-radius: var(--vscode-cornerRadius-small, 4px);
+}
+
 body {
   padding: 0 16px 16px;
   color: var(--vscode-foreground);
@@ -134,6 +139,7 @@ select {
   color: var(--vscode-input-foreground);
   background: var(--vscode-input-background);
   border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: var(--corner-radius);
   font-family: inherit;
   font-size: inherit;
 }
@@ -162,6 +168,7 @@ button {
   color: var(--vscode-button-foreground);
   background: var(--vscode-button-background);
   border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: var(--corner-radius);
   font-family: inherit;
   font-size: inherit;
   cursor: pointer;
@@ -266,4 +273,168 @@ button:disabled {
   gap: 8px;
   align-items: center;
   margin-top: 16px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--vscode-panel-border, var(--vscode-widget-border, transparent));
+}
+
+button.tab {
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 4px 12px;
+}
+
+button.tab:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+button.tab.selected {
+  border-bottom-color: var(--vscode-focusBorder);
+}
+
+.list {
+  margin-bottom: 8px;
+}
+
+.list-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 6px;
+}
+
+.list-row .cell {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.list-head {
+  opacity: 0.8;
+  margin-right: 34px;
+}
+
+.field.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.verify-list {
+  list-style: none;
+  padding: 0;
+}
+
+.verify {
+  margin-bottom: 6px;
+}
+
+.verify.correct .verify-text {
+  color: var(--vscode-testing-iconPassed, var(--vscode-foreground));
+}
+
+.verify.wrong .verify-text,
+.verify.partial .verify-text {
+  color: var(--vscode-errorForeground);
+}
+
+.verify.empty .verify-text,
+.verify.excluded .verify-text,
+.verify.shadowed .verify-text,
+.verify.unchecked .verify-text {
+  color: var(--vscode-editorWarning-foreground);
+}
+
+.missing {
+  margin: 4px 0;
+  font-family: var(--vscode-editor-font-family);
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.modal {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 90vw);
+  max-height: 85vh;
+  padding: 12px 16px;
+  color: var(--vscode-foreground);
+  background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-widget-border, transparent));
+}
+
+.tree {
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 160px;
+  margin-top: 8px;
+  padding: 4px;
+  border: 1px solid var(--vscode-panel-border, var(--vscode-widget-border, transparent));
+}
+
+.tree ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 16px;
+}
+
+.tree > ul {
+  padding-left: 0;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.toggle-space {
+  display: inline-block;
+  min-width: 26px;
+}
+
+button.entry {
+  color: var(--vscode-foreground);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 1px 6px;
+  text-align: left;
+  white-space: pre;
+}
+
+button.entry:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+button.entry.selected {
+  color: var(--vscode-list-activeSelectionForeground);
+  background: var(--vscode-list-activeSelectionBackground);
+}
+
+.kind-symlink button.entry {
+  font-style: italic;
 }

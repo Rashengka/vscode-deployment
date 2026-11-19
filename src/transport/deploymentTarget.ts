@@ -17,6 +17,19 @@ export interface RemoteStat {
   readonly mode: number;
 }
 
+export interface RemoteEntry {
+  /** The name as the server sent it; untrusted (sanitize before showing it). */
+  readonly name: string;
+  /** The entry itself: a symbolic link is reported as `symlink`, not followed. */
+  readonly type: RemoteEntryType;
+}
+
+export interface RemoteListing {
+  readonly entries: readonly RemoteEntry[];
+  /** The directory has more entries than were read. */
+  readonly truncated: boolean;
+}
+
 export interface DeploymentTarget {
   /** A short description for messages, for example `deploy@example.com:22`. */
   describe(): string;
@@ -24,4 +37,6 @@ export interface DeploymentTarget {
   realpath(path: string): Promise<string>;
   /** Information about `path` (following symlinks), or `null` when it does not exist. */
   stat(path: string): Promise<RemoteStat | null>;
+  /** The entries of the directory `path` (without `.` and `..`), at most `maxEntries`. */
+  readdir(path: string, maxEntries: number): Promise<RemoteListing>;
 }

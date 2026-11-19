@@ -33,6 +33,9 @@ const SFTP: SftpDraft = {
   rootPath: '/home/deploy',
   keepAliveSeconds: '60',
   idleDisconnectMinutes: '15',
+  mappings: [],
+  excludedLocalPaths: [],
+  excludedRemotePaths: [],
 };
 
 const INPLACE: InplaceDraft = {
@@ -201,8 +204,7 @@ describe('Open Settings command and the settings panel', () => {
     assert.equal(handle.isDirty(), false);
   });
 
-  it('edits a server, moves the default and keeps the mappings it does not show', async () => {
-    // Mappings and excluded paths are edited elsewhere; saving the form must keep them.
+  it('edits a server, moves the default and keeps mappings written outside the panel', async () => {
     const { config } = await current();
     assert.ok(config);
     const [sftp, inplace] = config.servers;
@@ -224,9 +226,15 @@ describe('Open Settings command and the settings panel', () => {
     );
     await handle.receive({ type: 'reload' });
 
+    // The form now holds the mappings; editing other fields keeps them.
+    const [loadedSftp, loadedInplace] = lastOf(handle, 'state').draft;
+    assert.ok(loadedSftp?.type === 'sftp' && loadedInplace?.type === 'inplace');
+    assert.deepEqual(loadedSftp.mappings, [
+      { localPath: '.', deploymentPath: 'www/app.example.com' },
+    ]);
     const edited: ServerDraft[] = [
-      { ...SFTP, name: 'Production', default: false, port: '' },
-      { ...INPLACE, default: true },
+      { ...loadedSftp, name: 'Production', default: false, port: '' },
+      { ...loadedInplace, default: true },
     ];
     await handle.receive({ type: 'draft', servers: edited });
     assert.equal(handle.isDirty(), true);
@@ -246,6 +254,63 @@ describe('Open Settings command and the settings panel', () => {
     assert.equal(first.connection.port, null);
     assert.deepEqual(first.mappings, [{ localPath: '.', deploymentPath: 'www/app.example.com' }]);
     assert.deepEqual(first.excludedLocalPaths, ['.git']);
+  });
+
+  it('saves the Mappings and Excluded Paths tabs and shows them again after a reload', async () => {
+    const withLists: SftpDraft = {
+      ...SFTP,
+      mappings: [
+        { localPath: '.', deploymentPath: 'www/app.example.com' },
+        { localPath: ' public ', deploymentPath: 'www/static' },
+      ],
+      excludedLocalPaths: ['node_modules', 'var/cache'],
+      excludedRemotePaths: ['www/app.example.com/cache'],
+    };
+    await handle.receive({ type: 'save', servers: [withLists, INPLACE] });
+    assert.equal(lastOf(handle, 'state').notice, 'Saved.');
+
+    const { file, config } = await current();
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as unknown;
+    assert.ok(validateConfig(raw, { platform: process.platform }).ok);
+    const [server] = config?.servers ?? [];
+    assert.ok(server?.type === 'sftp');
+    assert.deepEqual(server.mappings, [
+      { localPath: '.', deploymentPath: 'www/app.example.com' },
+      { localPath: 'public', deploymentPath: 'www/static' },
+    ]);
+    assert.deepEqual(server.excludedLocalPaths, ['node_modules', 'var/cache']);
+    assert.deepEqual(server.excludedRemotePaths, ['www/app.example.com/cache']);
+
+    await handle.receive({ type: 'reload' });
+    const [shown] = lastOf(handle, 'state').saved;
+    assert.ok(shown?.type === 'sftp');
+    assert.deepEqual(shown.mappings, server.mappings);
+    assert.deepEqual(shown.excludedLocalPaths, server.excludedLocalPaths);
+    assert.deepEqual(shown.excludedRemotePaths, server.excludedRemotePaths);
+    assert.equal(handle.isDirty(), false);
+  });
+
+  it('refuses a mapping that leaves the project or excluding the project, and saves nothing', async () => {
+    const before = readFileSync((await current()).file, 'utf8');
+    await handle.receive({
+      type: 'save',
+      servers: [
+        {
+          ...SFTP,
+          mappings: [{ localPath: '../outside', deploymentPath: '/etc' }],
+          excludedLocalPaths: ['.'],
+        },
+        INPLACE,
+      ],
+    });
+    const fields = lastOf(handle, 'errors').errors.map((error) => error.field);
+    assert.deepEqual(fields.sort(), [
+      'excludedLocalPaths.0',
+      'mappings.0.deploymentPath',
+      'mappings.0.localPath',
+    ]);
+    assert.equal(readFileSync((await current()).file, 'utf8'), before);
+    await handle.receive({ type: 'reload' });
   });
 
   it('reports invalid fields and saves nothing', async () => {
