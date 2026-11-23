@@ -63,6 +63,21 @@ private keys. It is designed so that:
   path on the server is only looked up when it is below the root path. It only looks files up
   on the server (`stat`).
 
+- **Compare with Deployed Version only reads.** The deployed version is read into memory, at
+  most 20 MB (the limit holds while reading, not by the size the server reports; memory stays
+  within about twice the data read, and a server that sends the file in many tiny pieces is
+  stopped after a bounded number of read requests), and is shown in a read-only
+  `vscode-deployment-remote:` document; writing, deleting or renaming it is refused. That file
+  system never reads from a server itself: it serves only the versions the command downloaded,
+  each at an address with its own random token, so an address made up by another extension or
+  a link finds nothing. The token is valid for as long as the version is registered (while an
+  editor tab shows it), not for a single read. Once open, the deployed version is a document
+  like any other: other VS Code extensions can read it, as they can read every open document.
+  Only the path the server's mappings give for a project file is read, never an excluded one. A
+  symbolic link at that path is refused (checked with `lstat`), and a binary file is reported
+  instead of shown. At most 10 versions (100 MB) are kept, and a version is dropped when its
+  last editor tab closes.
+
 ## What is kept in memory, and for how long
 
 JavaScript strings cannot be wiped, so some secret data exists in memory for a while as
@@ -163,6 +178,11 @@ The extension cannot protect against everything:
   start of the save until right after the replacement, when the extension records the new file:
   a change by another process in that window is not reported, and the connections are compared
   with the servers the extension saved, not with what the file then holds.
+- **Compare with Deployed Version and symbolic links.** SFTP cannot open a file without
+  following a link, so the `lstat` check and the read are two requests: a server (or another
+  user on it) that replaces the file with a link in between can make the extension read the
+  link's target. The folders above the file are not checked for links at all. Either way the
+  content is only shown, never written anywhere, and the 20 MB limit still holds.
 - **`VSCODE_DEPLOYMENT_CONFIG_DIR`.** This environment variable moves the configuration root
   (it exists for tests). Whoever controls the environment VS Code starts with can point the
   extension to a different configuration; the same ownership checks apply to it.

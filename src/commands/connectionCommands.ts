@@ -17,6 +17,7 @@ import {
   type ConnectionMenuAction,
 } from '../ui/connectionPresentation';
 import { findChoice, type SftpServerChoice } from '../ui/serverChoices';
+import { pickServer } from './pickServer';
 import { SHOW_CONNECTION_MENU_COMMAND } from '../ui/statusBar';
 import {
   runTestConnection,
@@ -38,36 +39,6 @@ export interface ConnectionCommandsOptions {
   /** Loads the configured SFTP servers from disk (a fresh copy for every command). */
   readonly loadServers: () => Promise<SftpServerChoice[]>;
   readonly openConfigCommand: string;
-}
-
-interface ServerPick extends vscode.QuickPickItem {
-  readonly choice: SftpServerChoice;
-}
-
-/** Text for a QuickPick description or detail, which render `$(icon)` syntax too. */
-function pickText(text: string): string {
-  return labelText(text);
-}
-
-async function pickServer(
-  choices: readonly SftpServerChoice[],
-): Promise<SftpServerChoice | undefined> {
-  if (choices.length === 1) {
-    return choices[0];
-  }
-  const picked = await vscode.window.showQuickPick<ServerPick>(
-    choices.map((choice) => {
-      const { connection } = choice.server;
-      return {
-        label: labelText(choice.server.name),
-        description: pickText(connection.sshConfigHost ?? connection.host ?? ''),
-        detail: pickText(choice.folderName),
-        choice,
-      };
-    }),
-    { title: 'Test Connection', placeHolder: 'Select the server to connect to' },
-  );
-  return picked?.choice;
 }
 
 /**
@@ -132,7 +103,7 @@ export function registerConnectionCommands(
       }
       return undefined;
     } else {
-      choice = await pickServer(choices);
+      choice = await pickServer(choices, 'Test Connection', 'Select the server to connect to');
       if (choice === undefined) {
         return undefined;
       }

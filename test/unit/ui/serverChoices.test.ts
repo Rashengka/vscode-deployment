@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { FoldersSnapshot } from '../../../src/config/folders';
 import type { DeploymentConfig, InplaceServer } from '../../../src/config/model';
 import {
+  choicesOfFolder,
   configuredSftpServers,
   connectionKey,
   findChoice,
@@ -97,5 +98,25 @@ describe('testConnectionKey', () => {
     expect(isTestConnectionKey(key)).toBe(false);
     expect(isTestConnectionKey('a')).toBe(false);
     expect(testConnectionKey(key)).not.toBe(key);
+  });
+});
+
+describe('choicesOfFolder', () => {
+  it('keeps the servers of one folder, the default server first', () => {
+    const of = (folder: string, id: string, isDefault: boolean): SftpServerChoice => ({
+      key: connectionKey(folder, id),
+      server: sftpServer(id, 'test', { default: isDefault }),
+      folderName: folder,
+      configFile: '/config.json',
+    });
+    const choices = [
+      of('file:///a', 'one', false),
+      of('file:///ab', 'other', true),
+      of('file:///a', 'two', true),
+    ];
+    expect(choicesOfFolder(choices, 'file:///a').map((choice) => choice.server.id)).toEqual([
+      'two',
+      'one',
+    ]);
   });
 });

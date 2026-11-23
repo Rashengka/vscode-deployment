@@ -23,6 +23,7 @@ import {
 import { UnsupportedKeyError, WrongPassphraseError } from '../ssh/privateKey';
 import { RemoteWindowError } from '../ssh/remoteWindow';
 import { SshConfigError } from '../ssh/sshConfig';
+import { RemoteReadError } from '../transport/deploymentTarget';
 
 const FAILURES: readonly (abstract new (...args: never[]) => Error)[] = [
   AlgorithmError,
@@ -36,6 +37,7 @@ const FAILURES: readonly (abstract new (...args: never[]) => Error)[] = [
   KeyDerivationError,
   KeyMismatchError,
   KnownHostsError,
+  RemoteReadError,
   RemoteWindowError,
   Sha1SignatureRefusedError,
   SshConfigError,

@@ -2,6 +2,9 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import * as vscode from 'vscode';
 import { createConnectionManager } from './adapters/connection';
+import { DeployedVersionCompare, registerCompareCommand } from './commands/compareCommand';
+import { RemoteDocuments } from './compare/documents';
+import { RemoteFileSystem } from './compare/remoteFileSystem';
 import { registerConnectionCommands } from './commands/connectionCommands';
 import { OPEN_CONFIG_COMMAND, openConfig } from './commands/openConfig';
 import { openSettings } from './commands/openSettings';
@@ -191,9 +194,24 @@ export function activate(context: vscode.ExtensionContext): void {
       void tracker.refresh();
     },
   });
+  const remoteDocuments = new RemoteDocuments();
+  const compare = new DeployedVersionCompare({
+    connections,
+    log,
+    showLog,
+    documents: remoteDocuments,
+  });
   context.subscriptions.push(
     channel,
     statusBar,
+    RemoteFileSystem.register(remoteDocuments),
+    compare,
+    registerCompareCommand({
+      compare,
+      loadFolders: () => loadFolders(workspaceFolderRefs(), storeOptions()),
+      openConfigCommand: OPEN_CONFIG_COMMAND,
+      returnResults: context.extensionMode === vscode.ExtensionMode.Test,
+    }),
     tracker,
     settingsPanels,
     {

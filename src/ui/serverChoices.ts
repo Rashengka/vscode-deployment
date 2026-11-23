@@ -77,3 +77,16 @@ export function configuredSftpServers(
   }
   return choices;
 }
+
+/** The servers of the workspace folder `folderKey` (its URI), default server first. */
+export function choicesOfFolder(
+  choices: readonly SftpServerChoice[],
+  folderKey: string,
+): SftpServerChoice[] {
+  const prefix = connectionKey(folderKey, '');
+  const own = choices.filter((choice) => choice.key.startsWith(prefix));
+  return [
+    ...own.filter((choice) => choice.server.default),
+    ...own.filter((c) => !c.server.default),
+  ];
+}

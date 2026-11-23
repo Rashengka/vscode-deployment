@@ -18,7 +18,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import * as vscode from 'vscode';
 import { ensureConfigFile, saveConfig, type StoreOptions } from '../../../src/config/store';
-import type { SftpServer } from '../../../src/config/model';
+import type { Server } from '../../../src/config/model';
 
 function isInside(parent: string, child: string): boolean {
   const rel = relative(parent, child);
@@ -95,21 +95,23 @@ export function writeSshFiles(options: {
   return { keyFile };
 }
 
+function isServerList(server: Server | readonly Server[]): server is readonly Server[] {
+  return Array.isArray(server);
+}
+
 /**
- * Saves a configuration with `server` for the first workspace folder and returns a function
- * that removes it again (other tests expect the folder to start without a configuration).
+ * Saves a configuration with `server` (or several servers) for the first workspace folder,
+ * replacing any configuration it has, and returns a function that removes it again (other
+ * tests expect the folder to start without a configuration).
  */
-export async function configureServer(server: SftpServer): Promise<() => void> {
+export async function configureServer(server: Server | readonly Server[]): Promise<() => void> {
   const folder = vscode.workspace.workspaceFolders?.[0];
   assert.ok(folder, 'the test instance has no workspace folder');
   const options = storeOptions();
   await ensureConfigFile(folder.uri.fsPath, options);
   const projectPath = realpathSync(folder.uri.fsPath);
-  const file = await saveConfig(
-    folder.uri.fsPath,
-    { version: 1, projectPath, servers: [server] },
-    options,
-  );
+  const servers: Server[] = isServerList(server) ? [...server] : [server];
+  const file = await saveConfig(folder.uri.fsPath, { version: 1, projectPath, servers }, options);
   return () => {
     rmSync(dirname(file), { recursive: true, force: true });
   };

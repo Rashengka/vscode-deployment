@@ -8,7 +8,8 @@
  */
 import type { SftpServer } from '../config/model';
 import type { DeploymentTarget } from '../transport/deploymentTarget';
-import { isExcluded, mappingFor, pathSegments, remotePathOf } from './paths';
+import { pathSegments } from './paths';
+import { remoteTargetOf } from './target';
 
 /** SFTP status errors carry the server's numeric status code. */
 function isSftpStatusError(error: unknown): error is Error {
@@ -101,22 +102,15 @@ export function planVerification(
   const groups: PlannedFile[][] = server.mappings.map(() => []);
   const mapped: number[] = server.mappings.map(() => 0);
   for (const local of projectFiles) {
-    const match = mappingFor(server.mappings, local);
-    if (match === undefined) {
+    const target = remoteTargetOf(server, local);
+    if (target.kind === 'unmapped') {
       continue;
     }
-    mapped[match.index] = (mapped[match.index] ?? 0) + 1;
-    if (isExcluded(local, server.excludedLocalPaths)) {
+    mapped[target.mappingIndex] = (mapped[target.mappingIndex] ?? 0) + 1;
+    if (target.kind === 'excluded') {
       continue;
     }
-    const belowRoot = [...pathSegments(match.mapping.deploymentPath), ...match.rest].join('/');
-    if (isExcluded(belowRoot, server.excludedRemotePaths)) {
-      continue;
-    }
-    groups[match.index]?.push({
-      local,
-      remote: remotePathOf(server.rootPath, match.mapping.deploymentPath, match.rest),
-    });
+    groups[target.mappingIndex]?.push({ local, remote: target.remotePath });
   }
   const localKeys = server.mappings.map((mapping) => pathSegments(mapping.localPath).join('/'));
   return server.mappings.map((mapping, index) => {
