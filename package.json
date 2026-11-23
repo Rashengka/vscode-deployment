@@ -71,6 +71,17 @@
         "command": "vscodeDeployment.showConnectionMenu",
         "title": "Show Connection Menu",
         "category": "Deployment"
+      },
+      {
+        "command": "vscodeDeployment.compareWithDeployed",
+        "title": "Compare with Deployed Version",
+        "category": "Deployment"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "vscodeDeployment.fileMenu",
+        "label": "Deployment"
       }
     ],
     "menus": {
@@ -90,9 +101,48 @@
         {
           "command": "vscodeDeployment.showConnectionMenu",
           "when": "false"
+        },
+        {
+          "command": "vscodeDeployment.compareWithDeployed",
+          "when": "vscodeDeployment.hasUploadTarget && resourceScheme == file"
+        }
+      ],
+      "vscodeDeployment.fileMenu": [
+        {
+          "command": "vscodeDeployment.compareWithDeployed",
+          "when": "!explorerResourceIsFolder",
+          "group": "1_compare"
+        }
+      ],
+      "explorer/context": [
+        {
+          "submenu": "vscodeDeployment.fileMenu",
+          "when": "vscodeDeployment.hasUploadTarget && resourceScheme == file",
+          "group": "z_deployment"
+        }
+      ],
+      "editor/context": [
+        {
+          "submenu": "vscodeDeployment.fileMenu",
+          "when": "vscodeDeployment.hasUploadTarget && resourceScheme == file",
+          "group": "z_deployment"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "submenu": "vscodeDeployment.fileMenu",
+          "when": "vscodeDeployment.hasUploadTarget && resourceScheme == file",
+          "group": "z_deployment"
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "vscodeDeployment.compareWithDeployed",
+        "mac": "ctrl+shift+d",
+        "when": "vscodeDeployment.hasUploadTarget && resourceScheme == file && editorTextFocus"
+      }
+    ],
     "jsonValidation": [
       {
         "fileMatch": [

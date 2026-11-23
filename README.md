@@ -30,6 +30,17 @@ workflow of JetBrains IDEs.
   password box and never stored.
 - **Deployment: Disconnect** and **Disconnect All** close connections. The status bar shows the
   connection (`$(plug)` and the server name); clicking it opens a menu with these commands.
+- **Deployment: Compare with Deployed Version** (in the **Deployment** submenu of the Explorer,
+  editor and editor tab context menus, in the Command Palette, and on macOS with `ctrl+shift+d`)
+  opens a diff of the file on the server (left, read-only) and the local file (right), titled
+  `<file> (<server>) ↔ Local`. The file on the server is found through the server's mappings;
+  nothing is downloaded for a file outside every mapping or excluded. Files missing on the
+  server, symbolic links on the server, binary files and files larger than 20 MB are reported
+  instead of being shown. In-place servers have no deployed version to compare with. The
+  server marked as default is used without asking (as is the only server with a mapping);
+  otherwise you pick one. The deployed version is kept in memory only while its tab is open: a
+  tab restored after reloading the window shows that the file was not found, and Compare has to
+  be run again.
 - The **Deployment** output channel logs connections and their results with the time and the
   server, never a passphrase or key content.
 
@@ -43,7 +54,6 @@ See [SECURITY.md](SECURITY.md) for what the extension protects and its limits.
   that is only ever kept in memory) and in-place servers (a local folder with a web URL).
 - Upload the current file, all open files, or files selected in the Explorer, always after an
   explicit confirmation with _Cancel_ preselected.
-- Compare a local file with its deployed version.
 - Download a file from the server, with a confirmation before a local file is overwritten.
 
 ## License

@@ -1,13 +1,14 @@
 import { strict as assert } from 'node:assert';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { setFlagsFromString, writeHeapSnapshot } from 'node:v8';
 import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
 import * as vscode from 'vscode';
+import type { CompareCommandResult } from '../../../src/commands/compareCommand';
 import type { TestConnectionResult } from '../../../src/commands/connectionCommands';
 import type { Ssh2Module } from '../../../src/ssh/connectionManager';
 import { sftpServer } from '../../support/connectionFixture';
@@ -93,6 +94,8 @@ function assertSearched(name: string, report: CategoryReport | undefined): Categ
   return report;
 }
 
+const COMPARE_FILE = 'canary-compare.txt';
+
 // The passphrase is typed into the real input box of a VS Code
 // instance with trace logging (see the `canary` configuration in .vscode-test.mjs), the key is
 // decrypted and used for a login, and then every file the instance wrote, the Deployment output
@@ -102,6 +105,7 @@ describe('secret leak canary', () => {
   let sshd: SshdContainer | undefined;
   let agent: Agent | undefined;
   let removeConfig: (() => void) | undefined;
+  let compareFile: string | undefined;
   const root = instanceRoot();
   const userData = requiredEnv('VSCODE_DEPLOYMENT_TEST_USER_DATA');
   const heapDir = join(root, 'heap');
@@ -145,12 +149,34 @@ describe('secret leak canary', () => {
     assert.equal(prepared.encrypted, true, 'the canary key is not encrypted');
     assert.ok(prepared.keyLines > 0, 'the decrypted key has no lines to search for');
     assert.ok(prepared.controlKeyLines > 0, 'the control key has no lines to search for');
-    removeConfig = await configureServer(sftpServer('canary', 'test', { name: 'Canary Server' }));
+    removeConfig = await configureServer(
+      sftpServer('canary', 'test', {
+        name: 'Canary Server',
+        mappings: [{ localPath: '.', deploymentPath: 'www/app' }],
+      }),
+    );
+    // A mapped project file and its deployed version, for Compare with Deployed Version.
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(folder, 'the test instance has no workspace folder');
+    compareFile = join(folder.uri.fsPath, COMPARE_FILE);
+    writeFileSync(compareFile, 'local\n');
+    await sshd.exec(
+      [
+        'set -eu',
+        'mkdir -p /home/deploy/www/app',
+        `printf 'deployed\\n' > /home/deploy/www/app/${COMPARE_FILE}`,
+        'chown -R deploy:deploy /home/deploy/www',
+      ].join('\n'),
+    );
   });
 
   after(async () => {
+    await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     await vscode.commands.executeCommand('vscodeDeployment.disconnectAll');
     removeConfig?.();
+    if (compareFile !== undefined) {
+      rmSync(compareFile, { force: true });
+    }
     agent?.stop();
     await sshd?.stop();
   });
@@ -236,6 +262,35 @@ describe('secret leak canary', () => {
       names.filter((name) => name.startsWith('passphrase') || name.startsWith('decrypted key')),
       [],
       'the heap contains the passphrase or the decrypted key',
+    );
+  });
+
+  it('(g) compares a mapped file after a new login with the passphrase', async () => {
+    // Disconnected by the previous test, so Compare logs in again and asks for the passphrase.
+    assert.ok(compareFile, 'the compared file was not written');
+    const pending = vscode.commands.executeCommand<CompareCommandResult | undefined>(
+      'vscodeDeployment.compareWithDeployed',
+      vscode.Uri.file(compareFile),
+    );
+    const typed = await helper().request<{ typed: boolean }>({
+      command: 'type',
+      devToolsActivePort: join(userData, 'DevToolsActivePort'),
+      timeoutMs: 60_000,
+    });
+    const result = await pending;
+
+    assert.equal(typed.typed, true);
+    assert.deepEqual(result, {
+      outcome: 'opened',
+      title: `${COMPARE_FILE} (Canary Server) ↔ Local`,
+      remotePath: `/home/deploy/www/app/${COMPARE_FILE}`,
+    });
+    const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+    assert.ok(tab?.input instanceof vscode.TabInputTextDiff, 'no diff was opened');
+    const deployed = await vscode.workspace.openTextDocument(tab.input.original);
+    assert.equal(deployed.getText(), 'deployed\n');
+    await waitForLogText(
+      `[Canary Server] Compare with Deployed Version: /home/deploy/www/app/${COMPARE_FILE}: opened`,
     );
   });
 

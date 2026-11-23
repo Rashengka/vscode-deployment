@@ -10,7 +10,7 @@
 import { sanitizeForDisplay } from '../display/sanitize';
 import type { DeploymentLog } from '../log/deploymentLog';
 import type { ConnectionManager } from '../ssh/connectionManager';
-import { connectionFailure } from './connectionFailures';
+import { runCancellable } from './cancellableOperation';
 import { notificationText } from './notifications';
 import type { SftpServerChoice } from './serverChoices';
 
@@ -42,13 +42,6 @@ export interface TestConnectionHost {
   showError(message: string): void;
 }
 
-class CancelledByUser extends Error {
-  constructor() {
-    super('Cancelled.');
-    this.name = 'CancelledByUser';
-  }
-}
-
 export async function runTestConnection(
   host: TestConnectionHost,
   choice: SftpServerChoice,
@@ -56,51 +49,33 @@ export async function runTestConnection(
   const { connections, log } = host;
   const { server, configFile, key } = choice;
   const name = notificationText(server.name, 100);
-  // Cancelling closes only a connection this command opened, never one that was open before.
-  const opensConnection = connections.status(key) === 'disconnected';
-  const attempt = { cancelled: false };
   log.info(server.name, 'Test Connection', 'connecting');
-  let home: string;
-  try {
-    home = await host.withProgress(`Testing the connection to ${name}…`, (onCancel) => {
-      const running = connections.run({ server, configFile, key }, (target) =>
-        target.realpath('.'),
-      );
-      // Settled later when cancelled; the outcome is then of no interest.
-      running.catch(() => undefined);
-      const cancelled = new Promise<never>((_resolve, reject) => {
-        onCancel(() => {
-          attempt.cancelled = true;
-          if (opensConnection) {
-            connections.disconnect(key);
-          }
-          reject(new CancelledByUser());
-        });
-      });
-      return Promise.race([running, cancelled]);
-    });
-  } catch (error) {
-    if (attempt.cancelled) {
+  const outcome = await runCancellable(
+    host,
+    connections,
+    key,
+    `Testing the connection to ${name}…`,
+    () => connections.run({ server, configFile, key }, (target) => target.realpath('.')),
+  );
+  switch (outcome.kind) {
+    case 'cancelled':
       log.info(server.name, 'Test Connection', 'cancelled');
       return undefined;
-    }
-    const failure = connectionFailure(error);
-    if (failure === undefined) {
-      log.error(server.name, 'Test Connection (unexpected error)', error);
+    case 'unexpected':
+      log.error(server.name, 'Test Connection (unexpected error)', outcome.error);
       host.showError(
         `Test Connection to ${name} failed because of an unexpected error. ` +
           'The details are in the Deployment log.',
       );
       return undefined;
-    }
-    if (failure.kind === 'cancelled') {
-      log.info(server.name, 'Test Connection', 'cancelled');
+    case 'failed':
+      log.error(server.name, 'Test Connection', outcome.error);
+      host.showError(`Test Connection to ${name} failed: ${notificationText(outcome.message)}`);
       return undefined;
-    }
-    log.error(server.name, 'Test Connection', error);
-    host.showError(`Test Connection to ${name} failed: ${notificationText(failure.message)}`);
-    return undefined;
+    case 'done':
+      break;
   }
+  const home = outcome.value;
 
   const details = connections.details(key);
   const user = details?.user ?? '';

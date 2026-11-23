@@ -58,6 +58,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   folder picker lists folders lazily, never above its base folder, shows symbolic links without
   opening them and lists at most 1000 entries per folder. An excluded path must name something
   below the project folder or the root path, not the folder itself.
+- Command `Deployment: Compare with Deployed Version` in a `Deployment` submenu of the Explorer,
+  editor and editor tab context menus (and `ctrl+shift+d` on macOS only, where it is free; on
+  Windows and Linux it is Run and Debug). It reads the deployed version of the file through the
+  server's mappings into memory and opens `vscode.diff` titled `<file> (<server>) ↔ Local`, with
+  the deployed version in a read-only `vscode-deployment-remote:` document. The file on the
+  server is checked with `lstat`: a symbolic link or a folder is refused, a missing file is
+  reported as `File does not exist on <server>`, a binary file (a NUL byte in its first 8 kB) is
+  reported instead of shown, and reading stops with a message after 20 MB, whatever size the
+  server reports (and after a bounded number of read requests, against a server that sends
+  tiny pieces). The read-only document is served only at the address with the random token
+  the command created, while its tab is open; any other address is not found, and writes are
+  refused. The server marked as default is used without asking; otherwise a picker lists the
+  servers with a mapping, with their host and deployment paths.
 - `SECURITY.md`: what the extension protects, what stays in memory and its limits, and what the
   secret leak test checks.
 - Secret leak test: a passphrase typed into the real password box of VS Code (with trace logging)

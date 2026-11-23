@@ -1,6 +1,11 @@
 import type { SFTPWrapper } from 'ssh2';
 import { describe, expect, it } from 'vitest';
 import { ConnectionError } from '../../../src/ssh/connectionManager';
+import {
+  RemoteFileTooLargeError,
+  RemoteReadCancelledError,
+  RemoteReadError,
+} from '../../../src/transport/deploymentTarget';
 import { SftpTarget } from '../../../src/transport/sftpTarget';
 
 type Callback = (error: Error | undefined, value?: unknown) => void;
@@ -223,5 +228,206 @@ describe('SftpTarget.readdir when the channel misbehaves', () => {
     const listing = await new SftpTarget(fake.sftp, 'Prod').readdir('/x', 10);
     expect(listing).toEqual({ entries: [], truncated: true });
     expect(fake.reads()).toBeLessThanOrEqual(20);
+  });
+});
+
+/**
+ * An SFTP session that serves one file of `content`, `chunk` bytes per read at most, answering
+ * asynchronously like ssh2. It records the buffers it was asked to read into, and calls
+ * `onRead` before answering each read.
+ */
+function fileSftp(
+  content: Buffer,
+  chunk: number,
+  onRead: (reads: number) => void = () => undefined,
+): {
+  sftp: SFTPWrapper;
+  calls: string[];
+  requested: () => number;
+  reads: () => number;
+  bufferBytes: (extra?: ArrayBufferLike) => number;
+} {
+  const calls: string[] = [];
+  let requested = 0;
+  let reads = 0;
+  const buffers = new Set<ArrayBufferLike>();
+  const handle = Buffer.from('f1');
+  const sftp = {
+    open: (
+      path: string,
+      flags: string,
+      callback: (error: Error | undefined, handle?: Buffer) => void,
+    ) => {
+      calls.push(`open ${path} ${flags}`);
+      callback(undefined, handle);
+    },
+    read: (
+      _where: Buffer,
+      buffer: Buffer,
+      offset: number,
+      length: number,
+      position: number,
+      callback: (error: Error | undefined, bytesRead?: number) => void,
+    ) => {
+      requested += length;
+      reads += 1;
+      buffers.add(buffer.buffer);
+      onRead(reads);
+      const end = Math.min(content.length, position + Math.min(length, chunk));
+      const n = Math.max(0, end - position);
+      content.copy(buffer, offset, position, position + n);
+      // ssh2 reports the end of the file as a read of 0 bytes.
+      setImmediate(() => {
+        callback(undefined, n);
+      });
+    },
+    close: (where: Buffer, callback: (error: Error | undefined) => void) => {
+      calls.push(`close ${where.toString()}`);
+      callback(undefined);
+    },
+  } as unknown as SFTPWrapper;
+  return {
+    sftp,
+    calls,
+    requested: () => requested,
+    reads: () => reads,
+    bufferBytes: (extra) =>
+      [...new Set([...buffers, ...(extra === undefined ? [] : [extra])])].reduce(
+        (sum, buffer) => sum + buffer.byteLength,
+        0,
+      ),
+  };
+}
+
+describe('SftpTarget.readFile', () => {
+  it('reads the whole file over several short reads and closes the handle', async () => {
+    const content = Buffer.from('a'.repeat(10_000));
+    const { sftp, calls } = fileSftp(content, 1000);
+    const data = await new SftpTarget(sftp, 'Prod').readFile('/var/www/app/a.txt', 20_000);
+    expect(data.equals(content)).toBe(true);
+    expect(calls).toEqual(['open /var/www/app/a.txt r', 'close f1']);
+  });
+
+  it('reads an empty file', async () => {
+    const { sftp } = fileSftp(Buffer.alloc(0), 1000);
+    const data = await new SftpTarget(sftp, 'Prod').readFile('/var/www/app/empty', 10);
+    expect(data.length).toBe(0);
+  });
+
+  it('reads a file of exactly the limit', async () => {
+    const { sftp } = fileSftp(Buffer.alloc(100, 1), 7);
+    const data = await new SftpTarget(sftp, 'Prod').readFile('/x', 100);
+    expect(data.length).toBe(100);
+  });
+
+  it('stops reading one byte past the limit, whatever the size the server reported', async () => {
+    const { sftp, calls, requested } = fileSftp(Buffer.alloc(1_000_000, 1), 64);
+    const failure = await new SftpTarget(sftp, 'Prod').readFile('/x', 100).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(RemoteFileTooLargeError);
+    expect((failure as RemoteFileTooLargeError).maxBytes).toBe(100);
+    // Never asked for more than the limit and one byte (to tell "exactly" from "more").
+    expect(requested()).toBeLessThanOrEqual(101 + 64);
+    expect(calls).toEqual(['open /x r', 'close f1']);
+  });
+
+  it('stops when the signal is aborted and closes the handle', async () => {
+    const { sftp, calls } = fileSftp(Buffer.alloc(1000, 1), 10);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      new SftpTarget(sftp, 'Prod').readFile('/x', 10_000, controller.signal),
+    ).rejects.toBeInstanceOf(RemoteReadCancelledError);
+    expect(calls).toEqual(['open /x r', 'close f1']);
+  });
+
+  it('sends no further read once the signal is aborted during a read', async () => {
+    const controller = new AbortController();
+    const { sftp, calls, reads } = fileSftp(Buffer.alloc(1000, 1), 10, () => {
+      controller.abort();
+    });
+    await expect(
+      new SftpTarget(sftp, 'Prod').readFile('/x', 10_000, controller.signal),
+    ).rejects.toBeInstanceOf(RemoteReadCancelledError);
+    expect(reads()).toBe(1);
+    expect(calls).toEqual(['open /x r', 'close f1']);
+  });
+
+  it('keeps memory near the data read when the server answers one byte per read', async () => {
+    const content = Buffer.alloc(1000, 0x61);
+    const { sftp, bufferBytes } = fileSftp(content, 1);
+    const data = await new SftpTarget(sftp, 'Prod').readFile('/x', 1024 * 1024);
+    expect(data.equals(content)).toBe(true);
+    // Every buffer handed to the server and the buffer behind the result, together: at most
+    // twice the data and one 64 KiB read buffer, not 64 KiB for every byte.
+    expect(bufferBytes(data.buffer)).toBeLessThanOrEqual(2 * content.length + 64 * 1024 + 4096);
+  });
+
+  it('stops a server that sends a file in too many small pieces', async () => {
+    const { sftp, calls, reads } = fileSftp(Buffer.alloc(1000, 0x61), 1);
+    const failure = await new SftpTarget(sftp, 'Prod').readFile('/x', 2048).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(RemoteReadError);
+    expect((failure as Error).message).toMatch(/too many small pieces/);
+    // maxBytes / 512, rounded up, and a reserve of 16.
+    expect(reads()).toBe(Math.ceil(2049 / 512) + 16);
+    expect(calls).toEqual(['open /x r', 'close f1']);
+  });
+
+  it('reads a large file in few requests from a server that answers in full', async () => {
+    const content = Buffer.alloc(1024 * 1024, 0x62);
+    const { sftp, reads } = fileSftp(content, 64 * 1024);
+    const data = await new SftpTarget(sftp, 'Prod').readFile('/x', 2 * 1024 * 1024);
+    expect(data.equals(content)).toBe(true);
+    expect(reads()).toBeLessThanOrEqual(content.length / (64 * 1024) + 2);
+  });
+
+  it('keeps an SFTP status error of open as it is, and reports a closed channel', async () => {
+    const denied = Object.assign(new Error('Permission denied'), { code: 3 });
+    const failing = (error: Error): SFTPWrapper =>
+      ({
+        open: (_path: string, _flags: string, callback: (error: Error) => void) => {
+          callback(error);
+        },
+      }) as unknown as SFTPWrapper;
+    await expect(new SftpTarget(failing(denied), 'Prod').readFile('/x', 10)).rejects.toBe(denied);
+    await expect(
+      new SftpTarget(failing(new Error('No response from server')), 'Prod').readFile('/x', 10),
+    ).rejects.toBeInstanceOf(ConnectionError);
+  });
+});
+
+describe('SftpTarget.lstat', () => {
+  function lstatSftp(answer: { error?: Error; kind?: FakeEntry['kind'] }): SFTPWrapper {
+    return {
+      lstat: (_path: string, callback: (error: Error | undefined, stats?: unknown) => void) => {
+        if (answer.error !== undefined) {
+          callback(answer.error);
+          return;
+        }
+        callback(undefined, {
+          ...(attrs(answer.kind ?? 'file') as object),
+          size: 5,
+          mtime: 1_700_000_000,
+          mode: 0o120777,
+        });
+      },
+    } as unknown as SFTPWrapper;
+  }
+
+  it('reports a symbolic link itself, not its target', async () => {
+    const stat = await new SftpTarget(lstatSftp({ kind: 'symlink' }), 'Prod').lstat('/x');
+    expect(stat).toEqual({ type: 'symlink', size: 5, mtime: 1_700_000_000, mode: 0o777 });
+  });
+
+  it('reports a missing path as null', async () => {
+    const missing = Object.assign(new Error('No such file'), { code: 2 });
+    await expect(
+      new SftpTarget(lstatSftp({ error: missing }), 'Prod').lstat('/x'),
+    ).resolves.toBeNull();
   });
 });
